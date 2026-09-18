@@ -1,0 +1,83 @@
+{
+ "task_id": "mini-locate",
+ "profile": "fabricated",
+ "messages": [
+  {
+   "role": "system",
+   "content": "You are a code research agent. Cite every claim as [path:L10-L20]. Cite only lines you have read.",
+   "thinking": null,
+   "tool_calls": [],
+   "name": null,
+   "call_id": null,
+   "parse_error": null,
+   "usage": {}
+  },
+  {
+   "role": "user",
+   "content": "Repository map (mini):\nsrc/miniapp/ ...\n\nQuestion: Where is a session token validated?",
+   "thinking": null,
+   "tool_calls": [],
+   "name": null,
+   "call_id": null,
+   "parse_error": null,
+   "usage": {}
+  },
+  {
+   "role": "assistant",
+   "content": "",
+   "thinking": null,
+   "tool_calls": [
+    {
+     "name": "read_file",
+     "args": {
+      "path": "src/miniapp/auth/session.py",
+      "start": 30,
+      "end": 48
+     },
+     "call_id": null
+    }
+   ],
+   "name": null,
+   "call_id": null,
+   "parse_error": null,
+   "usage": {}
+  },
+  {
+   "role": "tool",
+   "content": "   30 | ...\n(total lines)",
+   "thinking": null,
+   "tool_calls": [],
+   "name": "read_file",
+   "call_id": null,
+   "parse_error": null,
+   "usage": {}
+  },
+  {
+   "role": "assistant",
+   "content": "Session tokens are validated in validate_session [src/miniapp/auth/sesion.py:L35-L42].",
+   "thinking": null,
+   "tool_calls": [],
+   "name": null,
+   "call_id": null,
+   "parse_error": null,
+   "usage": {}
+  }
+ ],
+ "stats": {
+  "turns": 2,
+  "tool_calls": 1,
+  "tool_errors": 0,
+  "prompt_tokens": 6000,
+  "completion_tokens": 400,
+  "files_read": [
+   {
+    "path": "src/miniapp/auth/session.py",
+    "start": 30,
+    "end": 48
+   }
+  ],
+  "stop_reason": "answer",
+  "seconds": 0.0
+ },
+ "answer": "Session tokens are validated in validate_session [src/miniapp/auth/sesion.py:L35-L42]."
+}

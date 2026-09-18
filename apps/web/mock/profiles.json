@@ -1,0 +1,5 @@
+[
+  { "name": "claude", "kind": "anthropic", "model": "claude-sonnet-5", "label": "Claude Sonnet 5", "note": "teacher" },
+  { "name": "qwen4b-base", "kind": "tinker", "model": "Qwen/Qwen3.5-4B", "label": "Qwen3.5-4B, untrained", "note": "step 0" },
+  { "name": "qwen4b-run1", "kind": "tinker", "model": "tinker://run1/step40", "label": "Qwen3.5-4B, trained", "note": "run 1, step 40" }
+]

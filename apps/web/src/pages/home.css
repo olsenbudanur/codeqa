@@ -1,0 +1,190 @@
+/* Landing page: matte dark field, emerald signal, framed panels. Fixed palette regardless of app theme. */
+.landing {
+  color-scheme: dark;
+  --background: #12151b;
+  --foreground: #f3f5f8;
+  --muted: #1a1e26;
+  --muted-foreground: #8b94a3;
+  --accent: #1c212a;
+  --accent-foreground: #f3f5f8;
+  --border: rgba(255, 255, 255, 0.09);
+  --input: rgba(255, 255, 255, 0.14);
+  --ring: rgba(255, 255, 255, 0.35);
+  --primary: #f3f5f8;
+  --primary-foreground: #0a0c10;
+  --canvas: #0a0c10;
+  --verified: #3fd39a;
+  --verified-soft: rgba(63, 211, 154, 0.16);
+  --unverified: #e0b04d;
+  --unverified-soft: rgba(224, 176, 77, 0.14);
+  --field: #0a0c10;
+  --glow: 63, 211, 154;
+  --font-display: 'Bricolage Grotesque Variable', var(--font-sans);
+  background: var(--field);
+  color: var(--foreground);
+  min-height: 100dvh;
+  position: relative;
+  isolation: isolate;
+  overflow-x: clip;
+}
+
+.landing .display {
+  font-family: var(--font-display);
+  font-variation-settings: 'opsz' 96, 'wdth' 100;
+  letter-spacing: -0.035em;
+  font-weight: 560;
+}
+
+/* --- Atmosphere: drifting light folds + a bloom behind the hero -------------- */
+.atmosphere {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 1500px;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+  mask-image: linear-gradient(to bottom, black 55%, transparent 100%);
+}
+.atmosphere .grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(to right, rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+  background-size: 64px 64px;
+  mask-image: radial-gradient(ellipse 70% 55% at 50% 0%, black 30%, transparent 100%);
+}
+.atmosphere .fold {
+  position: absolute;
+  top: -20%;
+  height: 140%;
+  width: 34vw;
+  min-width: 320px;
+  background: linear-gradient(to bottom, transparent 0%, rgba(var(--glow), 0.16) 45%, rgba(var(--glow), 0.05) 75%, transparent 100%);
+  filter: blur(60px);
+  mix-blend-mode: screen;
+  opacity: 0.9;
+  animation: fold-drift 34s ease-in-out infinite alternate;
+}
+.atmosphere .fold.a { left: 8%; animation-duration: 38s; }
+.atmosphere .fold.b { left: 38%; animation-duration: 46s; animation-delay: -12s; opacity: 0.6; }
+.atmosphere .fold.c { left: 64%; animation-duration: 42s; animation-delay: -25s; opacity: 0.75; }
+@keyframes fold-drift {
+  from { transform: translateX(-6vw) skewX(-6deg); }
+  to { transform: translateX(6vw) skewX(4deg); }
+}
+.atmosphere .bloom {
+  position: absolute;
+  left: 50%;
+  top: 520px;
+  width: 1100px;
+  height: 520px;
+  transform: translateX(-50%);
+  background: radial-gradient(ellipse at center, rgba(var(--glow), 0.22), rgba(var(--glow), 0.06) 45%, transparent 70%);
+  filter: blur(40px);
+}
+
+/* --- Framed surfaces ------------------------------------------------------- */
+/* 1px gradient border shell with a darker inner fill. */
+.frame {
+  position: relative;
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.05) 40%, rgba(255, 255, 255, 0.04));
+  padding: 1px;
+}
+.frame > .frame-inner {
+  border-radius: 13px;
+  background: var(--background);
+  overflow: hidden;
+}
+.frame.glow::before {
+  content: '';
+  position: absolute;
+  inset: 30% -6% -10% -6%;
+  z-index: -1;
+  border-radius: 40px;
+  background: radial-gradient(ellipse at 50% 100%, rgba(var(--glow), 0.28), transparent 65%);
+  filter: blur(36px);
+}
+
+.landing .panel {
+  background: var(--background);
+  border: 1px solid var(--border);
+}
+
+/* Corner brackets: the citation motif as a frame. */
+.bracket { position: relative; }
+.bracket > .bracket-corner {
+  position: absolute;
+  z-index: 1;
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid var(--verified);
+  pointer-events: none;
+}
+.bracket > .bracket-corner.tl { top: -1px; left: -1px; border-right: 0; border-bottom: 0; }
+.bracket > .bracket-corner.tr { top: -1px; right: -1px; border-left: 0; border-bottom: 0; }
+.bracket > .bracket-corner.bl { bottom: -1px; left: -1px; border-right: 0; border-top: 0; }
+.bracket > .bracket-corner.br { bottom: -1px; right: -1px; border-left: 0; border-top: 0; }
+.bracket-in > .bracket-corner { animation: bracket-close 0.55s cubic-bezier(0.2, 0.8, 0.2, 1) both; animation-delay: 1.3s; }
+.bracket-in > .bracket-corner.tl { --dx: -10px; --dy: -10px; }
+.bracket-in > .bracket-corner.tr { --dx: 10px; --dy: -10px; }
+.bracket-in > .bracket-corner.bl { --dx: -10px; --dy: 10px; }
+.bracket-in > .bracket-corner.br { --dx: 10px; --dy: 10px; }
+@keyframes bracket-close {
+  from { opacity: 0; transform: translate(var(--dx), var(--dy)); }
+  to { opacity: 1; transform: none; }
+}
+
+/* --- Motion ------------------------------------------------------------------ */
+.reveal-word { display: inline-block; overflow: hidden; vertical-align: bottom; padding-bottom: 0.08em; margin-bottom: -0.08em; }
+.reveal-word > span {
+  display: inline-block;
+  transform: translateY(110%);
+  animation: word-up 0.7s cubic-bezier(0.2, 0.7, 0.1, 1) forwards;
+  animation-delay: var(--d, 0ms);
+}
+@keyframes word-up { to { transform: translateY(0); } }
+
+.rise { opacity: 0; transform: translateY(28px); animation: rise 0.9s cubic-bezier(0.2, 0.8, 0.2, 1) forwards; animation-delay: var(--d, 0ms); }
+@keyframes rise { to { opacity: 1; transform: none; } }
+
+.hero-cite { display: inline-block; vertical-align: 0.12em; margin-left: 0.18em; opacity: 0; transform: translateY(0.4em); }
+.hero-cite.show { animation: cite-in 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) forwards; }
+@keyframes cite-in { to { opacity: 1; transform: none; } }
+
+.rule { position: relative; }
+.rule::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto auto 0;
+  height: 1px;
+  width: 100%;
+  background: linear-gradient(to right, transparent, rgba(255, 255, 255, 0.14) 20%, rgba(255, 255, 255, 0.14) 80%, transparent);
+  transform: scaleX(0);
+  transform-origin: center;
+  transition: transform 1s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.rule.is-in::before { transform: scaleX(1); }
+.rule > .rule-body { opacity: 0; transform: translateY(12px); transition: opacity 0.6s ease 0.2s, transform 0.7s cubic-bezier(0.2, 0.7, 0.1, 1) 0.2s; }
+.rule.is-in > .rule-body { opacity: 1; transform: none; }
+
+.stage-phase { animation: phase-in 0.45s ease both; }
+@keyframes phase-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.stage-scroll { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+
+.landing details > summary { list-style: none; cursor: pointer; }
+.landing details > summary::-webkit-details-marker { display: none; }
+.landing details[open] .faq-plus { transform: rotate(45deg); }
+.faq-plus { transition: transform 0.2s ease; }
+
+@media (prefers-reduced-motion: reduce) {
+  .atmosphere .fold { animation: none; }
+  .reveal-word > span { transform: none; animation: none; }
+  .rise { opacity: 1; transform: none; animation: none; }
+  .bracket-in > .bracket-corner { animation: none; opacity: 1; transform: none; }
+  .hero-cite { opacity: 1; transform: none; }
+  .rule::before { transform: scaleX(1); transition: none; }
+  .rule > .rule-body { opacity: 1; transform: none; transition: none; }
+  .stage-phase { animation: none; }
+}

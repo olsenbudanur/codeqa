@@ -1,0 +1,22 @@
+claude:
+  kind: anthropic
+  model: claude-sonnet-5
+  max_generation_tokens: 2048
+haiku:
+  kind: anthropic
+  model: claude-haiku-4-5-20251001
+  max_generation_tokens: 1024
+qwen4b-base:
+  kind: tinker
+  model: Qwen/Qwen3.5-4B
+  renderer: qwen3_5
+  max_context: 32768
+  max_generation_tokens: 2048
+qwen4b-smoke1-step3:
+  kind: tinker
+  model: tinker://26aa98fc-06d9-5cfd-828f-10aa53818242:train:0/sampler_weights/final
+  base_model: Qwen/Qwen3.5-4B
+  renderer: qwen3_5
+  max_context: 32768
+  max_generation_tokens: 2048
+  thinking: true

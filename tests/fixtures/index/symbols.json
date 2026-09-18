@@ -1,0 +1,392 @@
+{
+ "repo_id": "mini__repo__0000001",
+ "symbols": [
+  {
+   "name": "App",
+   "kind": "class",
+   "path": "src/miniapp/api/app.py",
+   "start": 11,
+   "end": 33,
+   "parent": null,
+   "signature": "class App:"
+  },
+  {
+   "name": "__init__",
+   "kind": "method",
+   "path": "src/miniapp/api/app.py",
+   "start": 14,
+   "end": 16,
+   "parent": "App",
+   "signature": "def __init__(self, settings: Settings) -> None:"
+  },
+  {
+   "name": "add_route",
+   "kind": "method",
+   "path": "src/miniapp/api/app.py",
+   "start": 18,
+   "end": 20,
+   "parent": "App",
+   "signature": "def add_route(self, route: BaseRoute) -> None:"
+  },
+  {
+   "name": "dispatch",
+   "kind": "method",
+   "path": "src/miniapp/api/app.py",
+   "start": 22,
+   "end": 33,
+   "parent": "App",
+   "signature": "def dispatch(self, request: dict) -> dict:"
+  },
+  {
+   "name": "create_app",
+   "kind": "function",
+   "path": "src/miniapp/api/app.py",
+   "start": 36,
+   "end": 42,
+   "parent": null,
+   "signature": "def create_app(settings: Settings | None = None) -> App:"
+  },
+  {
+   "name": "HttpError",
+   "kind": "class",
+   "path": "src/miniapp/api/errors.py",
+   "start": 5,
+   "end": 12,
+   "parent": null,
+   "signature": "class HttpError(Exception):"
+  },
+  {
+   "name": "__init__",
+   "kind": "method",
+   "path": "src/miniapp/api/errors.py",
+   "start": 10,
+   "end": 12,
+   "parent": "HttpError",
+   "signature": "def __init__(self, message: str = \"\") -> None:"
+  },
+  {
+   "name": "NotFound",
+   "kind": "class",
+   "path": "src/miniapp/api/errors.py",
+   "start": 15,
+   "end": 18,
+   "parent": null,
+   "signature": "class NotFound(HttpError):"
+  },
+  {
+   "name": "Unauthorized",
+   "kind": "class",
+   "path": "src/miniapp/api/errors.py",
+   "start": 21,
+   "end": 24,
+   "parent": null,
+   "signature": "class Unauthorized(HttpError):"
+  },
+  {
+   "name": "auth_middleware",
+   "kind": "function",
+   "path": "src/miniapp/api/middleware.py",
+   "start": 9,
+   "end": 19,
+   "parent": null,
+   "signature": "def auth_middleware(request: dict, secret: str) -> dict:"
+  },
+  {
+   "name": "logging_middleware",
+   "kind": "function",
+   "path": "src/miniapp/api/middleware.py",
+   "start": 22,
+   "end": 25,
+   "parent": null,
+   "signature": "def logging_middleware(request: dict) -> dict:"
+  },
+  {
+   "name": "BaseRoute",
+   "kind": "class",
+   "path": "src/miniapp/api/routes.py",
+   "start": 8,
+   "end": 15,
+   "parent": null,
+   "signature": "class BaseRoute:"
+  },
+  {
+   "name": "handle",
+   "kind": "method",
+   "path": "src/miniapp/api/routes.py",
+   "start": 13,
+   "end": 15,
+   "parent": "BaseRoute",
+   "signature": "def handle(self, request: dict) -> dict:"
+  },
+  {
+   "name": "HealthRoute",
+   "kind": "class",
+   "path": "src/miniapp/api/routes.py",
+   "start": 18,
+   "end": 24,
+   "parent": null,
+   "signature": "class HealthRoute(BaseRoute):"
+  },
+  {
+   "name": "handle",
+   "kind": "method",
+   "path": "src/miniapp/api/routes.py",
+   "start": 23,
+   "end": 24,
+   "parent": "HealthRoute",
+   "signature": "def handle(self, request: dict) -> dict:"
+  },
+  {
+   "name": "UsersRoute",
+   "kind": "class",
+   "path": "src/miniapp/api/routes.py",
+   "start": 27,
+   "end": 39,
+   "parent": null,
+   "signature": "class UsersRoute(BaseRoute):"
+  },
+  {
+   "name": "__init__",
+   "kind": "method",
+   "path": "src/miniapp/api/routes.py",
+   "start": 32,
+   "end": 33,
+   "parent": "UsersRoute",
+   "signature": "def __init__(self, store: UserStore) -> None:"
+  },
+  {
+   "name": "handle",
+   "kind": "method",
+   "path": "src/miniapp/api/routes.py",
+   "start": 35,
+   "end": 39,
+   "parent": "UsersRoute",
+   "signature": "def handle(self, request: dict) -> dict:"
+  },
+  {
+   "name": "SessionExpired",
+   "kind": "class",
+   "path": "src/miniapp/auth/session.py",
+   "start": 11,
+   "end": 12,
+   "parent": null,
+   "signature": "class SessionExpired(Exception):"
+  },
+  {
+   "name": "Session",
+   "kind": "class",
+   "path": "src/miniapp/auth/session.py",
+   "start": 16,
+   "end": 25,
+   "parent": null,
+   "signature": "class Session:"
+  },
+  {
+   "name": "is_expired",
+   "kind": "method",
+   "path": "src/miniapp/auth/session.py",
+   "start": 23,
+   "end": 25,
+   "parent": "Session",
+   "signature": "def is_expired(self, now: float | None = None) -> bool:"
+  },
+  {
+   "name": "create_session",
+   "kind": "function",
+   "path": "src/miniapp/auth/session.py",
+   "start": 28,
+   "end": 32,
+   "parent": null,
+   "signature": "def create_session(user_id: str, secret: str, ttl: int = DEFAULT_TIMEOUT) -> Session:"
+  },
+  {
+   "name": "validate_session",
+   "kind": "function",
+   "path": "src/miniapp/auth/session.py",
+   "start": 35,
+   "end": 42,
+   "parent": null,
+   "signature": "def validate_session(token: str, secret: str, now: float | None = None) -> Session:"
+  },
+  {
+   "name": "expire_session",
+   "kind": "function",
+   "path": "src/miniapp/auth/session.py",
+   "start": 45,
+   "end": 48,
+   "parent": null,
+   "signature": "def expire_session(session: Session) -> Session:"
+  },
+  {
+   "name": "TokenError",
+   "kind": "class",
+   "path": "src/miniapp/auth/tokens.py",
+   "start": 8,
+   "end": 9,
+   "parent": null,
+   "signature": "class TokenError(ValueError):"
+  },
+  {
+   "name": "sign_token",
+   "kind": "function",
+   "path": "src/miniapp/auth/tokens.py",
+   "start": 12,
+   "end": 15,
+   "parent": null,
+   "signature": "def sign_token(payload: str, secret: str) -> str:"
+  },
+  {
+   "name": "verify_token",
+   "kind": "function",
+   "path": "src/miniapp/auth/tokens.py",
+   "start": 18,
+   "end": 26,
+   "parent": null,
+   "signature": "def verify_token(token: str, secret: str) -> str:"
+  },
+  {
+   "name": "User",
+   "kind": "class",
+   "path": "src/miniapp/auth/users.py",
+   "start": 8,
+   "end": 13,
+   "parent": null,
+   "signature": "class User:"
+  },
+  {
+   "name": "UserStore",
+   "kind": "class",
+   "path": "src/miniapp/auth/users.py",
+   "start": 16,
+   "end": 28,
+   "parent": null,
+   "signature": "class UserStore:"
+  },
+  {
+   "name": "__init__",
+   "kind": "method",
+   "path": "src/miniapp/auth/users.py",
+   "start": 19,
+   "end": 20,
+   "parent": "UserStore",
+   "signature": "def __init__(self) -> None:"
+  },
+  {
+   "name": "add",
+   "kind": "method",
+   "path": "src/miniapp/auth/users.py",
+   "start": 22,
+   "end": 24,
+   "parent": "UserStore",
+   "signature": "def add(self, user: User) -> None:"
+  },
+  {
+   "name": "get",
+   "kind": "method",
+   "path": "src/miniapp/auth/users.py",
+   "start": 26,
+   "end": 28,
+   "parent": "UserStore",
+   "signature": "def get(self, user_id: str) -> User | None:"
+  },
+  {
+   "name": "main",
+   "kind": "function",
+   "path": "src/miniapp/cli.py",
+   "start": 9,
+   "end": 15,
+   "parent": null,
+   "signature": "def main(argv: list[str] | None = None) -> int:"
+  },
+  {
+   "name": "Settings",
+   "kind": "class",
+   "path": "src/miniapp/config.py",
+   "start": 13,
+   "end": 18,
+   "parent": null,
+   "signature": "class Settings:"
+  },
+  {
+   "name": "load_settings",
+   "kind": "function",
+   "path": "src/miniapp/config.py",
+   "start": 21,
+   "end": 27,
+   "parent": null,
+   "signature": "def load_settings() -> Settings:"
+  },
+  {
+   "name": "MemoryStore",
+   "kind": "class",
+   "path": "src/miniapp/storage/memory.py",
+   "start": 5,
+   "end": 20,
+   "parent": null,
+   "signature": "class MemoryStore:"
+  },
+  {
+   "name": "__init__",
+   "kind": "method",
+   "path": "src/miniapp/storage/memory.py",
+   "start": 8,
+   "end": 9,
+   "parent": "MemoryStore",
+   "signature": "def __init__(self) -> None:"
+  },
+  {
+   "name": "put",
+   "kind": "method",
+   "path": "src/miniapp/storage/memory.py",
+   "start": 11,
+   "end": 13,
+   "parent": "MemoryStore",
+   "signature": "def put(self, key: str, value: str) -> None:"
+  },
+  {
+   "name": "get",
+   "kind": "method",
+   "path": "src/miniapp/storage/memory.py",
+   "start": 15,
+   "end": 17,
+   "parent": "MemoryStore",
+   "signature": "def get(self, key: str, default: str | None = None) -> str | None:"
+  },
+  {
+   "name": "__len__",
+   "kind": "method",
+   "path": "src/miniapp/storage/memory.py",
+   "start": 19,
+   "end": 20,
+   "parent": "MemoryStore",
+   "signature": "def __len__(self) -> int:"
+  },
+  {
+   "name": "test_health",
+   "kind": "function",
+   "path": "tests/test_routes.py",
+   "start": 4,
+   "end": 5,
+   "parent": null,
+   "signature": "def test_health():"
+  },
+  {
+   "name": "test_roundtrip",
+   "kind": "function",
+   "path": "tests/test_session.py",
+   "start": 4,
+   "end": 6,
+   "parent": null,
+   "signature": "def test_roundtrip():"
+  },
+  {
+   "name": "test_expired",
+   "kind": "function",
+   "path": "tests/test_session.py",
+   "start": 9,
+   "end": 15,
+   "parent": null,
+   "signature": "def test_expired():"
+  }
+ ]
+}

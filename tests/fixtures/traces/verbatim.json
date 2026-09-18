@@ -1,0 +1,118 @@
+{
+ "task_id": "mini-explain",
+ "profile": "verbatim",
+ "messages": [
+  {
+   "role": "system",
+   "content": "You are a code research agent. Cite every claim as [path:L10-L20]. Cite only lines you have read.",
+   "thinking": null,
+   "tool_calls": [],
+   "name": null,
+   "call_id": null,
+   "parse_error": null,
+   "usage": {}
+  },
+  {
+   "role": "user",
+   "content": "Repository map (mini):\nsrc/miniapp/ ...\n\nQuestion: How are session tokens signed and verified?",
+   "thinking": null,
+   "tool_calls": [],
+   "name": null,
+   "call_id": null,
+   "parse_error": null,
+   "usage": {}
+  },
+  {
+   "role": "assistant",
+   "content": "",
+   "thinking": null,
+   "tool_calls": [
+    {
+     "name": "read_file",
+     "args": {
+      "path": "src/miniapp/auth/tokens.py",
+      "start": 1,
+      "end": 26
+     },
+     "call_id": null
+    }
+   ],
+   "name": null,
+   "call_id": null,
+   "parse_error": null,
+   "usage": {}
+  },
+  {
+   "role": "tool",
+   "content": "    1 | ...\n(total lines)",
+   "thinking": null,
+   "tool_calls": [],
+   "name": "read_file",
+   "call_id": null,
+   "parse_error": null,
+   "usage": {}
+  },
+  {
+   "role": "assistant",
+   "content": "",
+   "thinking": null,
+   "tool_calls": [
+    {
+     "name": "read_file",
+     "args": {
+      "path": "src/miniapp/auth/session.py",
+      "start": 1,
+      "end": 48
+     },
+     "call_id": null
+    }
+   ],
+   "name": null,
+   "call_id": null,
+   "parse_error": null,
+   "usage": {}
+  },
+  {
+   "role": "tool",
+   "content": "    1 | ...\n(total lines)",
+   "thinking": null,
+   "tool_calls": [],
+   "name": "read_file",
+   "call_id": null,
+   "parse_error": null,
+   "usage": {}
+  },
+  {
+   "role": "assistant",
+   "content": "Here is the code:\n    1 | \"\"\"HMAC token signing and verification.\"\"\"\n    2 | from __future__ import annotations\n    3 | \n    4 | import hashlib\n    5 | import hmac\n    6 | \n    7 | \n    8 | class TokenError(ValueError):\n    9 |     \"\"\"Raised when a token is malformed or its signature does not match.\"\"\"\n   10 | \n   11 | \n   12 | def sign_token(payload: str, secret: str) -> str:\n   13 |     \"\"\"Return payload joined with its hex HMAC-SHA256 signature.\"\"\"\n   14 |     sig = hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()\n   15 |     return f\"{payload}.{sig}\"\n   16 | \n   17 | \n   18 | def verify_token(token: str, secret: str) -> str:\n   19 |     \"\"\"Return the payload if the signature is valid, else raise TokenError.\"\"\"\n   20 |     if \".\" not in token:\n   21 |         raise TokenError(\"malformed token\")\n   22 |     payload, sig = token.rsplit(\".\", 1)\n   23 |     expected = hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()\n   24 |     if not hmac.compare_digest(sig, expected):\n   25 |         raise TokenError(\"bad signature\")\n   26 |     return payload\n   27 | \"\"\"Session creation, validation and expiry.\"\"\"\n   28 | from __future__ import annotations\n   29 | \n   30 | import time\n   31 | from dataclasses import dataclass, field\n   32 | \n   33 | from miniapp.auth.tokens import TokenError, sign_token, verify_token\n   34 | from miniapp.config import DEFAULT_TIMEOUT\n   35 | \n   36 | \n   37 | class SessionExpired(Exception):\n   38 |     \"\"\"Raised when a session token is past its expiry.\"\"\"\n   39 | \n   40 | \n   41 | @dataclass\n   42 | class Session:\n   43 |     \"\"\"A signed, time-limited session.\"\"\"\n   44 | \n   45 |     user_id: str\n   46 |     expires_at: float\n   47 |     token: str = field(default=\"\")\n   48 | \n   49 |     def is_expired(self, now: float | None = None) -> bool:\n   50 |         \"\"\"True when the session is past expires_at.\"\"\"\n   51 |         return (now or time.time()) > self.expires_at\n   52 | \n   53 | \n   54 | def create_session(user_id: str, secret: str, ttl: int = DEFAULT_TIMEOUT) -> Session:\n   55 |     \"\"\"Create a session whose token encodes the user id and expiry.\"\"\"\n   56 |     expires_at = time.time() + ttl\n   57 |     token = sign_token(f\"{user_id}:{expires_at}\", secret)\n   58 |     return Session(user_id=user_id, expires_at=expires_at, token=token)\n   59 | \n   60 | \n   61 | def validate_session(token: str, secret: str, now: float | None = None) -> Session:\n   62 |     \"\"\"Verify the token signature and expiry; raise SessionExpired or TokenError.\"\"\"\n   63 |     payload = verify_token(token, secret)\n   64 |     user_id, expires = payload.split(\":\", 1)\n   65 |     session = Session(user_id=user_id, expires_at=float(expires), token=token)\n   66 |     if session.is_expired(now):\n   67 |         raise SessionExpired(f\"session for {user_id} expired\")\n   68 |     return session\n   69 | \n   70 | \n   71 | def expire_session(session: Session) -> Session:\n   72 |     \"\"\"Force a session to expire immediately.\"\"\"\n   73 |     session.expires_at = 0.0\n   74 |     return session\n   75 | \"\"\"HMAC token signing and verification.\"\"\"\n   76 | from __future__ import annotations\n   77 | \n   78 | import hashlib\n   79 | import hmac\n   80 | \n   81 | \n   82 | class TokenError(ValueError):\n   83 |     \"\"\"Raised when a token is malformed or its signature does not match.\"\"\"\n   84 | \n   85 | \n   86 | def sign_token(payload: str, secret: str) -> str:\n   87 |     \"\"\"Return payload joined with its hex HMAC-SHA256 signature.\"\"\"\n   88 |     sig = hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()\n   89 |     return f\"{payload}.{sig}\"\n   90 | \n   91 | \n   92 | def verify_token(token: str, secret: str) -> str:\n   93 |     \"\"\"Return the payload if the signature is valid, else raise TokenError.\"\"\"\n   94 |     if \".\" not in token:\n   95 |         raise TokenError(\"malformed token\")\n   96 |     payload, sig = token.rsplit(\".\", 1)\n   97 |     expected = hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()\n   98 |     if not hmac.compare_digest(sig, expected):\n   99 |         raise TokenError(\"bad signature\")\n  100 |     return payload\n  101 | \"\"\"Session creation, validation and expiry.\"\"\"\n  102 | from __future__ import annotations\n  103 | \n  104 | import time\n  105 | from dataclasses import dataclass, field\n  106 | \n  107 | from miniapp.auth.tokens import TokenError, sign_token, verify_token\n  108 | from miniapp.config import DEFAULT_TIMEOUT\n  109 | \n  110 | \n  111 | class SessionExpired(Exception):\n  112 |     \"\"\"Raised when a session token is past its expiry.\"\"\"\n  113 | \n  114 | \n  115 | @dataclass\n  116 | class Session:\n  117 |     \"\"\"A signed, time-limited session.\"\"\"\n  118 | \n  119 |     user_id: str\n  120 |     expires_at: float\n  121 |     token: str = field(default=\"\")\n  122 | \n  123 |     def is_expired(self, now: float | None = None) -> bool:\n  124 |         \"\"\"True when the session is past expires_at.\"\"\"\n  125 |         return (now or time.time()) > self.expires_at\n  126 | \n  127 | \n  128 | def create_session(user_id: str, secret: str, ttl: int = DEFAULT_TIMEOUT) -> Session:\n  129 |     \"\"\"Create a session whose token encodes the user id and expiry.\"\"\"\n  130 |     expires_at = time.time() + ttl\n  131 |     token = sign_token(f\"{user_id}:{expires_at}\", secret)\n  132 |     return Session(user_id=user_id, expires_at=expires_at, token=token)\n  133 | \n  134 | \n  135 | def validate_session(token: str, secret: str, now: float | None = None) -> Session:\n  136 |     \"\"\"Verify the token signature and expiry; raise SessionExpired or TokenError.\"\"\"\n  137 |     payload = verify_token(token, secret)\n  138 |     user_id, expires = payload.split(\":\", 1)\n  139 |     session = Session(user_id=user_id, expires_at=float(expires), token=token)\n  140 |     if session.is_expired(now):\n  141 |         raise SessionExpired(f\"session for {user_id} expired\")\n  142 |     return session\n  143 | \n  144 | \n  145 | def expire_session(session: Session) -> Session:\n  146 |     \"\"\"Force a session to expire immediately.\"\"\"\n  147 |     session.expires_at = 0.0\n  148 |     return session\n  149 | \"\"\"HMAC token signing and verification.\"\"\"\n  150 | from __future__ import annotations\n  151 | \n  152 | import hashlib\n  153 | import hmac\n  154 | \n  155 | \n  156 | class TokenError(ValueError):\n  157 |     \"\"\"Raised when a token is malformed or its signature does not match.\"\"\"\n  158 | \n  159 | \n  160 | def sign_token(payload: str, secret: str) -> str:\n  161 |     \"\"\"Return payload joined with its hex HMAC-SHA256 signature.\"\"\"\n  162 |     sig = hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()\n  163 |     return f\"{payload}.{sig}\"\n  164 | \n  165 | \n  166 | def verify_token(token: str, secret: str) -> str:\n  167 |     \"\"\"Return the payload if the signature is valid, else raise TokenError.\"\"\"\n  168 |     if \".\" not in token:\n  169 |         raise TokenError(\"malformed token\")\n  170 |     payload, sig = token.rsplit(\".\", 1)\n  171 |     expected = hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()\n  172 |     if not hmac.compare_digest(sig, expected):\n  173 |         raise TokenError(\"bad signature\")\n  174 |     return payload\n  175 | \"\"\"Session creation, validation and expiry.\"\"\"\n  176 | from __future__ import annotations\n  177 | \n  178 | import time\n  179 | from dataclasses import dataclass, field\n  180 | \n  181 | from miniapp.auth.tokens import TokenError, sign_token, verify_token\n  182 | from miniapp.config import DEFAULT_TIMEOUT\n  183 | \n  184 | \n  185 | class SessionExpired(Exception):\n  186 |     \"\"\"Raised when a session token is past its expiry.\"\"\"\n  187 | \n  188 | \n  189 | @dataclass\n  190 | class Session:\n  191 |     \"\"\"A signed, time-limited session.\"\"\"\n  192 | \n  193 |     user_id: str\n  194 |     expires_at: float\n  195 |     token: str = field(default=\"\")\n  196 | \n  197 |     def is_expired(self, now: float | None = None) -> bool:\n  198 |         \"\"\"True when the session is past expires_at.\"\"\"\n  199 |         return (now or time.time()) > self.expires_at\n  200 | \n  201 | \n  202 | def create_session(user_id: str, secret: str, ttl: int = DEFAULT_TIMEOUT) -> Session:\n  203 |     \"\"\"Create a session whose token encodes the user id and expiry.\"\"\"\n  204 |     expires_at = time.time() + ttl\n  205 |     token = sign_token(f\"{user_id}:{expires_at}\", secret)\n  206 |     return Session(user_id=user_id, expires_at=expires_at, token=token)\n  207 | \n  208 | \n  209 | def validate_session(token: str, secret: str, now: float | None = None) -> Session:\n  210 |     \"\"\"Verify the token signature and expiry; raise SessionExpired or TokenError.\"\"\"\n  211 |     payload = verify_token(token, secret)\n  212 |     user_id, expires = payload.split(\":\", 1)\n  213 |     session = Session(user_id=user_id, expires_at=float(expires), token=token)\n  214 |     if session.is_expired(now):\n  215 |         raise SessionExpired(f\"session for {user_id} expired\")\n  216 |     return session\n  217 | \n  218 | \n  219 | def expire_session(session: Session) -> Session:\n  220 |     \"\"\"Force a session to expire immediately.\"\"\"\n  221 |     session.expires_at = 0.0\n  222 |     return session\n[src/miniapp/auth/tokens.py:L1-L26] [src/miniapp/auth/session.py:L1-L48]",
+   "thinking": null,
+   "tool_calls": [],
+   "name": null,
+   "call_id": null,
+   "parse_error": null,
+   "usage": {}
+  }
+ ],
+ "stats": {
+  "turns": 3,
+  "tool_calls": 2,
+  "tool_errors": 0,
+  "prompt_tokens": 6000,
+  "completion_tokens": 400,
+  "files_read": [
+   {
+    "path": "src/miniapp/auth/tokens.py",
+    "start": 1,
+    "end": 26
+   },
+   {
+    "path": "src/miniapp/auth/session.py",
+    "start": 1,
+    "end": 48
+   }
+  ],
+  "stop_reason": "answer",
+  "seconds": 0.0
+ },
+ "answer": "Here is the code:\n    1 | \"\"\"HMAC token signing and verification.\"\"\"\n    2 | from __future__ import annotations\n    3 | \n    4 | import hashlib\n    5 | import hmac\n    6 | \n    7 | \n    8 | class TokenError(ValueError):\n    9 |     \"\"\"Raised when a token is malformed or its signature does not match.\"\"\"\n   10 | \n   11 | \n   12 | def sign_token(payload: str, secret: str) -> str:\n   13 |     \"\"\"Return payload joined with its hex HMAC-SHA256 signature.\"\"\"\n   14 |     sig = hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()\n   15 |     return f\"{payload}.{sig}\"\n   16 | \n   17 | \n   18 | def verify_token(token: str, secret: str) -> str:\n   19 |     \"\"\"Return the payload if the signature is valid, else raise TokenError.\"\"\"\n   20 |     if \".\" not in token:\n   21 |         raise TokenError(\"malformed token\")\n   22 |     payload, sig = token.rsplit(\".\", 1)\n   23 |     expected = hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()\n   24 |     if not hmac.compare_digest(sig, expected):\n   25 |         raise TokenError(\"bad signature\")\n   26 |     return payload\n   27 | \"\"\"Session creation, validation and expiry.\"\"\"\n   28 | from __future__ import annotations\n   29 | \n   30 | import time\n   31 | from dataclasses import dataclass, field\n   32 | \n   33 | from miniapp.auth.tokens import TokenError, sign_token, verify_token\n   34 | from miniapp.config import DEFAULT_TIMEOUT\n   35 | \n   36 | \n   37 | class SessionExpired(Exception):\n   38 |     \"\"\"Raised when a session token is past its expiry.\"\"\"\n   39 | \n   40 | \n   41 | @dataclass\n   42 | class Session:\n   43 |     \"\"\"A signed, time-limited session.\"\"\"\n   44 | \n   45 |     user_id: str\n   46 |     expires_at: float\n   47 |     token: str = field(default=\"\")\n   48 | \n   49 |     def is_expired(self, now: float | None = None) -> bool:\n   50 |         \"\"\"True when the session is past expires_at.\"\"\"\n   51 |         return (now or time.time()) > self.expires_at\n   52 | \n   53 | \n   54 | def create_session(user_id: str, secret: str, ttl: int = DEFAULT_TIMEOUT) -> Session:\n   55 |     \"\"\"Create a session whose token encodes the user id and expiry.\"\"\"\n   56 |     expires_at = time.time() + ttl\n   57 |     token = sign_token(f\"{user_id}:{expires_at}\", secret)\n   58 |     return Session(user_id=user_id, expires_at=expires_at, token=token)\n   59 | \n   60 | \n   61 | def validate_session(token: str, secret: str, now: float | None = None) -> Session:\n   62 |     \"\"\"Verify the token signature and expiry; raise SessionExpired or TokenError.\"\"\"\n   63 |     payload = verify_token(token, secret)\n   64 |     user_id, expires = payload.split(\":\", 1)\n   65 |     session = Session(user_id=user_id, expires_at=float(expires), token=token)\n   66 |     if session.is_expired(now):\n   67 |         raise SessionExpired(f\"session for {user_id} expired\")\n   68 |     return session\n   69 | \n   70 | \n   71 | def expire_session(session: Session) -> Session:\n   72 |     \"\"\"Force a session to expire immediately.\"\"\"\n   73 |     session.expires_at = 0.0\n   74 |     return session\n   75 | \"\"\"HMAC token signing and verification.\"\"\"\n   76 | from __future__ import annotations\n   77 | \n   78 | import hashlib\n   79 | import hmac\n   80 | \n   81 | \n   82 | class TokenError(ValueError):\n   83 |     \"\"\"Raised when a token is malformed or its signature does not match.\"\"\"\n   84 | \n   85 | \n   86 | def sign_token(payload: str, secret: str) -> str:\n   87 |     \"\"\"Return payload joined with its hex HMAC-SHA256 signature.\"\"\"\n   88 |     sig = hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()\n   89 |     return f\"{payload}.{sig}\"\n   90 | \n   91 | \n   92 | def verify_token(token: str, secret: str) -> str:\n   93 |     \"\"\"Return the payload if the signature is valid, else raise TokenError.\"\"\"\n   94 |     if \".\" not in token:\n   95 |         raise TokenError(\"malformed token\")\n   96 |     payload, sig = token.rsplit(\".\", 1)\n   97 |     expected = hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()\n   98 |     if not hmac.compare_digest(sig, expected):\n   99 |         raise TokenError(\"bad signature\")\n  100 |     return payload\n  101 | \"\"\"Session creation, validation and expiry.\"\"\"\n  102 | from __future__ import annotations\n  103 | \n  104 | import time\n  105 | from dataclasses import dataclass, field\n  106 | \n  107 | from miniapp.auth.tokens import TokenError, sign_token, verify_token\n  108 | from miniapp.config import DEFAULT_TIMEOUT\n  109 | \n  110 | \n  111 | class SessionExpired(Exception):\n  112 |     \"\"\"Raised when a session token is past its expiry.\"\"\"\n  113 | \n  114 | \n  115 | @dataclass\n  116 | class Session:\n  117 |     \"\"\"A signed, time-limited session.\"\"\"\n  118 | \n  119 |     user_id: str\n  120 |     expires_at: float\n  121 |     token: str = field(default=\"\")\n  122 | \n  123 |     def is_expired(self, now: float | None = None) -> bool:\n  124 |         \"\"\"True when the session is past expires_at.\"\"\"\n  125 |         return (now or time.time()) > self.expires_at\n  126 | \n  127 | \n  128 | def create_session(user_id: str, secret: str, ttl: int = DEFAULT_TIMEOUT) -> Session:\n  129 |     \"\"\"Create a session whose token encodes the user id and expiry.\"\"\"\n  130 |     expires_at = time.time() + ttl\n  131 |     token = sign_token(f\"{user_id}:{expires_at}\", secret)\n  132 |     return Session(user_id=user_id, expires_at=expires_at, token=token)\n  133 | \n  134 | \n  135 | def validate_session(token: str, secret: str, now: float | None = None) -> Session:\n  136 |     \"\"\"Verify the token signature and expiry; raise SessionExpired or TokenError.\"\"\"\n  137 |     payload = verify_token(token, secret)\n  138 |     user_id, expires = payload.split(\":\", 1)\n  139 |     session = Session(user_id=user_id, expires_at=float(expires), token=token)\n  140 |     if session.is_expired(now):\n  141 |         raise SessionExpired(f\"session for {user_id} expired\")\n  142 |     return session\n  143 | \n  144 | \n  145 | def expire_session(session: Session) -> Session:\n  146 |     \"\"\"Force a session to expire immediately.\"\"\"\n  147 |     session.expires_at = 0.0\n  148 |     return session\n  149 | \"\"\"HMAC token signing and verification.\"\"\"\n  150 | from __future__ import annotations\n  151 | \n  152 | import hashlib\n  153 | import hmac\n  154 | \n  155 | \n  156 | class TokenError(ValueError):\n  157 |     \"\"\"Raised when a token is malformed or its signature does not match.\"\"\"\n  158 | \n  159 | \n  160 | def sign_token(payload: str, secret: str) -> str:\n  161 |     \"\"\"Return payload joined with its hex HMAC-SHA256 signature.\"\"\"\n  162 |     sig = hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()\n  163 |     return f\"{payload}.{sig}\"\n  164 | \n  165 | \n  166 | def verify_token(token: str, secret: str) -> str:\n  167 |     \"\"\"Return the payload if the signature is valid, else raise TokenError.\"\"\"\n  168 |     if \".\" not in token:\n  169 |         raise TokenError(\"malformed token\")\n  170 |     payload, sig = token.rsplit(\".\", 1)\n  171 |     expected = hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()\n  172 |     if not hmac.compare_digest(sig, expected):\n  173 |         raise TokenError(\"bad signature\")\n  174 |     return payload\n  175 | \"\"\"Session creation, validation and expiry.\"\"\"\n  176 | from __future__ import annotations\n  177 | \n  178 | import time\n  179 | from dataclasses import dataclass, field\n  180 | \n  181 | from miniapp.auth.tokens import TokenError, sign_token, verify_token\n  182 | from miniapp.config import DEFAULT_TIMEOUT\n  183 | \n  184 | \n  185 | class SessionExpired(Exception):\n  186 |     \"\"\"Raised when a session token is past its expiry.\"\"\"\n  187 | \n  188 | \n  189 | @dataclass\n  190 | class Session:\n  191 |     \"\"\"A signed, time-limited session.\"\"\"\n  192 | \n  193 |     user_id: str\n  194 |     expires_at: float\n  195 |     token: str = field(default=\"\")\n  196 | \n  197 |     def is_expired(self, now: float | None = None) -> bool:\n  198 |         \"\"\"True when the session is past expires_at.\"\"\"\n  199 |         return (now or time.time()) > self.expires_at\n  200 | \n  201 | \n  202 | def create_session(user_id: str, secret: str, ttl: int = DEFAULT_TIMEOUT) -> Session:\n  203 |     \"\"\"Create a session whose token encodes the user id and expiry.\"\"\"\n  204 |     expires_at = time.time() + ttl\n  205 |     token = sign_token(f\"{user_id}:{expires_at}\", secret)\n  206 |     return Session(user_id=user_id, expires_at=expires_at, token=token)\n  207 | \n  208 | \n  209 | def validate_session(token: str, secret: str, now: float | None = None) -> Session:\n  210 |     \"\"\"Verify the token signature and expiry; raise SessionExpired or TokenError.\"\"\"\n  211 |     payload = verify_token(token, secret)\n  212 |     user_id, expires = payload.split(\":\", 1)\n  213 |     session = Session(user_id=user_id, expires_at=float(expires), token=token)\n  214 |     if session.is_expired(now):\n  215 |         raise SessionExpired(f\"session for {user_id} expired\")\n  216 |     return session\n  217 | \n  218 | \n  219 | def expire_session(session: Session) -> Session:\n  220 |     \"\"\"Force a session to expire immediately.\"\"\"\n  221 |     session.expires_at = 0.0\n  222 |     return session\n[src/miniapp/auth/tokens.py:L1-L26] [src/miniapp/auth/session.py:L1-L48]"
+}

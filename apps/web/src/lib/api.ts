@@ -1,0 +1,202 @@
+import type { AskRequest, Profile, RepoJobStatus, RepoSummary, SSEEvent } from './contracts'
+import { readSSE } from './sse'
+import mockEvents from '../../mock/events.json'
+import mockRepos from '../../mock/repos.json'
+import mockProfiles from '../../mock/profiles.json'
+import flaskAppPy from '../../mock/files/pallets__flask__85c5d93/src/flask/app.py?raw'
+import flaskSansioAppPy from '../../mock/files/pallets__flask__85c5d93/src/flask/sansio/app.py?raw'
+
+export interface Api {
+  listRepos(): Promise<RepoSummary[]>
+  addRepo(url: string, sha?: string): Promise<{ job_id: string }>
+  repoStatus(jobId: string): Promise<RepoJobStatus>
+  listProfiles(): Promise<Profile[]>
+  ask(req: AskRequest, signal?: AbortSignal): AsyncIterable<SSEEvent>
+  getFile(repoId: string, path: string): Promise<string>
+  suggestions(repoId: string): Promise<string[]>
+}
+
+// ---------------------------------------------------------------------------
+// HTTP client against apps/api (FastAPI). Base URL from VITE_API_URL.
+// ---------------------------------------------------------------------------
+
+export class HttpApi implements Api {
+  private base: string
+  constructor(base: string) {
+    this.base = base
+  }
+
+  private async json<T>(path: string, init?: RequestInit): Promise<T> {
+    const res = await fetch(this.base + path, {
+      ...init,
+      headers: { 'content-type': 'application/json', ...(init?.headers ?? {}) },
+      signal: init?.signal ?? AbortSignal.timeout(60_000),
+    })
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}: ${await res.text()}`)
+    return (await res.json()) as T
+  }
+
+  listRepos() {
+    return this.json<RepoSummary[]>('/repos')
+  }
+  addRepo(url: string, sha?: string) {
+    return this.json<{ job_id: string }>('/repos', { method: 'POST', body: JSON.stringify({ url, sha }) })
+  }
+  repoStatus(jobId: string) {
+    return this.json<RepoJobStatus>(`/repos/${encodeURIComponent(jobId)}/status`)
+  }
+  listProfiles() {
+    return this.json<Profile[]>('/profiles')
+  }
+  async suggestions(repoId: string) {
+    const r = await this.json<{ questions: string[] }>(`/repos/${encodeURIComponent(repoId)}/suggestions`)
+    return r.questions
+  }
+  async *ask(req: AskRequest, signal?: AbortSignal) {
+    const res = await fetch(this.base + '/ask', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'text/event-stream' },
+      body: JSON.stringify(req),
+      signal,
+    })
+    yield* readSSE<SSEEvent>(res, signal)
+  }
+  async getFile(repoId: string, path: string) {
+    const q = new URLSearchParams({ repo_id: repoId, path })
+    const res = await fetch(`${this.base}/file?${q}`, { signal: AbortSignal.timeout(30_000) })
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
+    return res.text()
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Mock client: replays mock/events.json with realistic pacing, fakes an
+// indexing job, serves the two flask files that the mock answer cites.
+// ---------------------------------------------------------------------------
+
+const sleep = (ms: number, signal?: AbortSignal) =>
+  new Promise<void>((resolve, reject) => {
+    const t = setTimeout(resolve, ms)
+    signal?.addEventListener('abort', () => {
+      clearTimeout(t)
+      reject(new DOMException('aborted', 'AbortError'))
+    })
+  })
+
+const PACE: Record<SSEEvent['type'], number> = {
+  thinking: 420,
+  tool_call: 180,
+  tool_result: 380,
+  answer: 260,
+  citations: 120,
+  stats: 60,
+  done: 0,
+  error: 0,
+}
+
+const MOCK_FILES: Record<string, string> = {
+  'pallets__flask__85c5d93/src/flask/app.py': flaskAppPy,
+  'pallets__flask__85c5d93/src/flask/sansio/app.py': flaskSansioAppPy,
+}
+
+interface MockJob {
+  repo_id: string
+  startedAt: number
+}
+
+const STAGES: { stage: RepoJobStatus['stage']; seconds: number }[] = [
+  { stage: 'snapshot', seconds: 2.5 },
+  { stage: 'index', seconds: 2 },
+  { stage: 'summaries', seconds: 3 },
+]
+
+export class MockApi implements Api {
+  private repos: RepoSummary[] = structuredClone(mockRepos) as RepoSummary[]
+  private jobs = new Map<string, MockJob>()
+
+  async listRepos() {
+    await sleep(120)
+    return this.repos
+  }
+
+  async addRepo(url: string, sha?: string) {
+    await sleep(200)
+    const m = url.match(/github\.com\/([^/\s]+)\/([^/\s#?]+)/)
+    if (!m) throw new Error('Paste a GitHub URL like https://github.com/owner/repo')
+    const owner = m[1]
+    const repo = m[2].replace(/\.git$/, '')
+    const sha7 = (sha ?? 'a1b2c3d').slice(0, 7)
+    const repo_id = `${owner}__${repo}__${sha7}`
+    const job_id = `job_${Date.now().toString(36)}`
+    this.jobs.set(job_id, { repo_id, startedAt: Date.now() })
+    if (!this.repos.some((r) => r.repo_id === repo_id)) {
+      this.repos = [
+        ...this.repos,
+        { repo_id, url: `https://github.com/${owner}/${repo}`, sha: sha7, files: 0, lines: 0, stage: 'snapshot' },
+      ]
+    }
+    return { job_id }
+  }
+
+  async repoStatus(jobId: string): Promise<RepoJobStatus> {
+    await sleep(80)
+    const job = this.jobs.get(jobId)
+    if (!job) throw new Error(`Unknown job ${jobId}`)
+    const elapsed = (Date.now() - job.startedAt) / 1000
+    let t = 0
+    for (const s of STAGES) {
+      if (elapsed < t + s.seconds) {
+        const progress = (elapsed - t) / s.seconds
+        this.patch(job.repo_id, { stage: s.stage })
+        return { repo_id: job.repo_id, stage: s.stage, progress, seconds: elapsed }
+      }
+      t += s.seconds
+    }
+    this.patch(job.repo_id, { stage: 'ready', files: 412, lines: 61_380, symbols: 2_904 })
+    return { repo_id: job.repo_id, stage: 'ready', progress: 1, seconds: elapsed }
+  }
+
+  private patch(repoId: string, p: Partial<RepoSummary>) {
+    this.repos = this.repos.map((r) => (r.repo_id === repoId ? { ...r, ...p } : r))
+  }
+
+  async listProfiles() {
+    return mockProfiles as Profile[]
+  }
+
+  async *ask(_req: AskRequest, signal?: AbortSignal): AsyncIterable<SSEEvent> {
+    for (const ev of mockEvents.events as SSEEvent[]) {
+      await sleep(PACE[ev.type], signal)
+      yield ev
+    }
+  }
+
+  async suggestions(repoId: string) {
+    await sleep(60)
+    if (repoId.startsWith('pallets__flask')) {
+      return [
+        'Where is the Flask application class defined, and what does it inherit from?',
+        'Trace what happens when a request raises an exception.',
+        'How does Flask decide which session interface to use?',
+      ]
+    }
+    const name = repoId.split('__')[1] ?? repoId
+    return [
+      `What is the main entry point of ${name}, and what does it do?`,
+      `Trace what happens when ${name} handles an error.`,
+      `Which modules in ${name} depend on each other the most, and why?`,
+    ]
+  }
+  async getFile(repoId: string, path: string) {
+    await sleep(150)
+    const text = MOCK_FILES[`${repoId}/${path}`]
+    if (text === undefined) throw new Error(`No mock content for ${path}. The mock only serves the files the sample answer cites.`)
+    return text
+  }
+}
+
+export const MOCK_QUESTION = mockEvents.question
+
+const base = import.meta.env.VITE_API_URL as string | undefined
+export const api: Api = base ? new HttpApi(base.replace(/\/$/, '')) : new MockApi()
+export const IS_MOCK = !base
