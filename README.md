@@ -70,7 +70,7 @@ The grader is a pure library with three consumers: the trainer for reward, the p
 | Grader | `codeqa/grader/` | task + trace | `GradeResult`, `check_citations` |
 | Trainer | `codeqa/trainer/` | tasks, agent, grader, Tinker | checkpoints, `data/logs/<run>/` |
 | Evals | `codeqa/evals/` | profiles, task files, agent, grader | `data/evals/<profile>/<set>/`, plots, the SWE-QA judge score |
-| Serving | `codeqa/serving/`, `apps/inference/` | a Tinker checkpoint | merged weights on a Modal volume, a vLLM endpoint (day two) |
+| Serving (planned, day two) | `codeqa/serving/`, `apps/inference/` | a Tinker checkpoint | merged weights on a Modal volume, a vLLM endpoint |
 | Product | `apps/api/`, `apps/web/` | agent, grader, profiles | the demo: FastAPI SSE backend, Vite + React + shadcn SPA |
 
 Import rules: everyone may import `shared` and `clients`; `agent` and `grader` import nothing else; `datagen`, `trainer`, `evals`, and `apps/api` import the core and never each other. No component reads another's files except through `codeqa/shared/paths.py`. Details and rationale: `docs/components.md`.
@@ -94,7 +94,7 @@ Every raw task is sampled a few times with the base model and filtered to a pass
 
 ## Training
 
-The trainer is a thin dataset builder and config on top of `tinker-cookbook`'s RL loop (LoRA rank 32, importance-sampling loss, `remove_constant_reward_groups`). One task becomes a group of `RepoEnv` instances; rewards are computed per group so judge failures can fall back to the group mean and the efficiency term can see token counts.
+The trainer is a thin dataset builder and config on top of `tinker-cookbook`'s RL loop (LoRA rank 32, `remove_constant_reward_groups` on). One task becomes a group of `RepoEnv` instances; rewards are computed per group so judge failures can fall back to the group mean and the efficiency term can see token counts.
 
 ```
 uv run python -u -m codeqa.trainer.run --tasks data/tasks/train/all.jsonl --profile qwen4b-base \
@@ -153,8 +153,8 @@ Smoke scripts in `scripts/` prove one seam each: `smoke_chat` (Tinker renderer r
 ## Layout
 
 ```
-codeqa/          the Python package: shared, clients, agent, datagen, grader, trainer, evals, serving
-apps/            api (FastAPI SSE), web (Vite + React), inference (Modal vLLM), trainer (Modal runner)
+codeqa/          the Python package: shared, clients, agent, datagen, grader, trainer, evals (serving planned)
+apps/            api (FastAPI SSE), web (Vite + React); inference (Modal vLLM) and trainer (Modal runner) are planned
 scripts/         smoke tests; deploy/ (secret scan, EC2 bootstrap and update)
 tests/fixtures/  a mini repo, its index, five task records, adversarial traces
 data/            gitignored: repos/ index/ tasks/ traces/ logs/ evals/ models/
