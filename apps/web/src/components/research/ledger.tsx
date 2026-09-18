@@ -1,8 +1,9 @@
 import { useState } from 'react'
-import { Check, ChevronRight } from 'lucide-react'
+import { Check } from 'lucide-react'
+import { BracketSpinner, Dots } from '@/components/working'
+import { ThinkingBlock, ThinkingToggleAll } from './thinking-block'
 import type { LogRow, ToolRow } from '@/state/episode'
 import type { Span } from '@/lib/contracts'
-import { cn } from '@/lib/utils'
 
 // One sentence per tool call, written as what the agent is doing.
 function describeCall(r: ToolRow): { verb: string; span?: Span } {
@@ -12,6 +13,7 @@ function describeCall(r: ToolRow): { verb: string; span?: Span } {
       const path = String(a.path ?? '')
       const start = Number(a.start ?? 1)
       const end = Number(a.end ?? start)
+      if (!Number.isFinite(start) || !Number.isFinite(end)) return { verb: `Read ${path} (malformed range: ${JSON.stringify(a.start)}…)` }
       return { verb: `Read ${path}, lines ${start}–${end}`, span: { path, start, end } }
     }
     case 'find_symbol': {
@@ -41,10 +43,13 @@ function resultLabel(r: ToolRow): string {
     const start = Number(r.args.start ?? 1)
     const end = Number(r.args.end ?? start)
     const n = end - start + 1
+    if (!Number.isFinite(n)) return res.summary
     return `${n} ${n === 1 ? 'line' : 'lines'}`
   }
   return res.summary
 }
+
+const secs = (s: number | undefined) => (s === undefined ? '' : `, ${s < 0.05 ? '<0.1' : s.toFixed(1)} s`)
 
 export function Ledger({
   rows,
@@ -65,11 +70,16 @@ export function Ledger({
 }) {
   const calls = rows.filter((r): r is ToolRow => r.kind === 'call')
   const total = callCount ?? calls.length
+  const thoughts = rows.filter((r) => r.kind === 'thinking').length
+  const [allOpen, setAllOpen] = useState(false)
+  const [openIds, setOpenIds] = useState<Set<number>>(new Set())
+  const toggleOne = (id: number) => setOpenIds((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n })
   return (
     <section aria-label="Research log">
       {!compact && (
-      <header className="mb-2 flex items-baseline justify-between">
+      <header className="mb-2 flex items-baseline justify-between gap-3">
         <h2 className="text-sm font-medium">Research</h2>
+        <span className="ml-auto"><ThinkingToggleAll count={thoughts} allOpen={allOpen} onToggle={() => setAllOpen((v) => !v)} /></span>
         <span className="font-mono text-xs text-muted-foreground tabular-nums">
           {total} {total === 1 ? 'call' : 'calls'}
           {budget ? ` of ${budget}` : ''}
@@ -78,12 +88,33 @@ export function Ledger({
       )}
       <ol className={compact ? '' : 'border-t'}>
         {rows.map((r) => {
-          if (r.kind === 'thinking') return <ThinkingRow key={r.id} text={r.text} />
+          if (r.kind === 'thinking')
+            return (
+              <li key={r.id} className="row-in border-b py-2">
+                <ThinkingBlock text={r.text} open={allOpen || openIds.has(r.id)} onToggle={() => (allOpen ? setAllOpen(false) : toggleOne(r.id))} compact={compact} />
+              </li>
+            )
           const step = startStep + calls.indexOf(r)
           const d = describeCall(r)
           const pending = !r.result
           return (
-            <li key={r.id} className="row-in grid grid-cols-[1.5rem_minmax(0,1fr)_auto] gap-x-2 border-b py-2.5">
+            <ToolRowView key={r.id} r={r} step={step} pending={pending} running={running} compact={compact} d={d} onOpen={onOpen} />
+          )
+        })}
+        {running && rows.length === 0 && (
+          <li className="flex items-center gap-2 py-2.5 text-sm text-muted-foreground"><BracketSpinner />Reading the repository map</li>
+        )}
+      </ol>
+    </section>
+  )
+}
+
+function ToolRowView({ r, step, pending, running, compact, d, onOpen }: { r: ToolRow; step: number; pending: boolean; running: boolean; compact?: boolean; d: { verb: string; span?: Span }; onOpen: (span: Span) => void }) {
+  const [open, setOpen] = useState(false)
+  const expandable = !!r.result?.text
+  return (
+    <li className="row-in border-b py-2.5">
+            <div className="grid grid-cols-[1.5rem_minmax(0,1fr)_auto] gap-x-2">
               <span className="pt-px font-mono text-xs text-muted-foreground tabular-nums">{step}</span>
               <div className="min-w-0">
                 {d.span ? (
@@ -99,46 +130,31 @@ export function Ledger({
                 )}
                 {r.why && <p className="mt-0.5 text-xs text-muted-foreground">{r.why}</p>}
               </div>
-              <span className="pt-px text-right font-mono text-xs text-muted-foreground tabular-nums">
+              <span className="max-w-[18rem] truncate pt-px text-right font-mono text-xs text-muted-foreground tabular-nums" title={r.result?.summary}>
                 {pending ? (
-                  <span className={cn('inline-block size-2 rounded-full bg-foreground/60', running && 'animate-pulse')} aria-label="Running" />
+                  running ? <Dots className="text-verified" /> : <span className="inline-block size-2 rounded-full bg-foreground/60" aria-label="Pending" />
                 ) : (
                   <span key="done" className="row-in inline-block">
                     {compact ? (
                       <Check className="size-3.5 text-verified" strokeWidth={3} aria-label="Done" />
                     ) : (
                       <>
-                        <span className="max-sm:hidden">{resultLabel(r)}</span>
+                        <span className="max-sm:hidden">{resultLabel(r)}{secs(r.result!.seconds)}</span>
                         <span className="sm:hidden">{fmt.format(r.result!.chars)} chars</span>
                       </>
                     )}
                   </span>
                 )}
               </span>
-            </li>
-          )
-        })}
-        {running && rows.length === 0 && (
-          <li className="py-2.5 text-sm text-muted-foreground">Reading the repository map</li>
-        )}
-      </ol>
-    </section>
-  )
-}
-
-function ThinkingRow({ text }: { text: string }) {
-  const [open, setOpen] = useState(false)
-  return (
-    <li className="row-in border-b py-2">
-      <button
-        type="button"
-        onClick={() => setOpen(!open)}
-        aria-expanded={open}
-        className="grid w-full grid-cols-[1.5rem_minmax(0,1fr)] gap-x-2 text-left text-xs text-muted-foreground"
-      >
-        <ChevronRight className={cn('size-3.5 transition-transform', open && 'rotate-90')} aria-hidden />
-        <span className={cn(!open && 'truncate')}>{text}</span>
-      </button>
+            </div>
+            {expandable && (
+              <div className="pl-[1.5rem]">
+                <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} className="mt-1 font-mono text-[11px] text-muted-foreground hover:text-foreground">
+                  {open ? 'hide result' : 'show result'}
+                </button>
+                {open && <pre className="mt-1 max-h-[280px] overflow-auto rounded bg-muted p-2 font-mono text-[11.5px] leading-4 whitespace-pre-wrap">{r.result!.text}</pre>}
+              </div>
+            )}
     </li>
   )
 }

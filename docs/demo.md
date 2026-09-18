@@ -17,6 +17,8 @@ cd apps/web && VITE_API_URL=http://localhost:8000 pnpm dev   # terminal 2 → ht
   `apps/web/mock/events.json` on every page. The home page always uses the recording.
 - Second fallback: `data/traces/product/` holds every episode the API has run; `evals.report` can read them.
 
+Password for everything but the home page: `Action!` (`CODEQA_PASSWORD` on the API to change it; the web app asks once per browser).
+
 ## 1. Home page (30 s)
 
 `http://localhost:5173/`. Let the hero replay finish: the question, the activity rows, "Researched in 3 calls, 9.8 s",
@@ -62,11 +64,18 @@ the same one training uses.
 
 ## 6. Base vs trained (60 s)
 
-Header → **Compare** (`/compare`). Left `Qwen3.5-4B, untrained`, right the trained checkpoint. Ask the locate question
+Header → **Compare** (`/compare`). Left `Qwen3.5-4B, untrained` (baseline), right the trained checkpoint; **Add model** for Claude as a third column (up to four). Ask the locate question
 again. Measured with `qwen4b-smoke1-step3` (a 3-step plumbing checkpoint, not a result): base 3 calls, 21.4k prompt
 tokens, 14.1 s, no bracketed citations; trained 1 call, 8.5k tokens, 12.1 s, one bracketed citation, not verified.
-Say what the reward did in three steps (format), what it has not done yet (grounding), and what the run-one checkpoint
+Then **Judge with Opus**: Opus researches the same question through the same tools (watch it on the left), then scores each column out of 10 with reasons that quote the citation check. Measured: untrained 7/10, `smoke_lr1e4` step 3 9/10. Say what the reward did in three steps (format), what it has not done yet (grounding), and what the run-one checkpoint
 shows here. Swap in the run-one profile before the talk; the picker lists everything in `profiles.yaml`.
+
+## During run one (not a demo beat, for the lead)
+
+`http://localhost:5173/workshop/live` on a second screen: reward with the s.e. band, the monitor's warnings (same rules as
+`codeqa.evals.monitor`), last-step numbers with deltas, KL / entropy / lr. It refreshes every 10 s while
+`data/logs/<run>/metrics.jsonl` keeps changing and the browser tab title carries the step and reward. The Workshop
+button in the workbench header shows a green dot while a run is live.
 
 ## If something breaks
 

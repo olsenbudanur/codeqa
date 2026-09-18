@@ -56,11 +56,16 @@ class RepoTools:
             self._by_path[s.path].append(s)
 
     # ------------------------------------------------------------------ plumbing
-    def tools(self) -> list:
-        return [self.overview, self.find_symbol, self.grep, self.read_file, self.list_dir]
+    DEFAULT_TOOLS = ("overview", "find_symbol", "grep", "read_file", "list_dir")
 
-    def specs(self) -> list[dict]:
-        return [t.to_spec() for t in self.tools()]
+    def tools(self, names: tuple[str, ...] | list[str] | None = None) -> list:
+        """The cookbook tool objects for a variant; default = the five. `bash` exists but is opt-in (agent/variants.py)."""
+        by_name = {"overview": self.overview, "find_symbol": self.find_symbol, "grep": self.grep,
+                   "read_file": self.read_file, "list_dir": self.list_dir, "bash": self.bash}
+        return [by_name[n] for n in (names or self.DEFAULT_TOOLS)]
+
+    def specs(self, names: tuple[str, ...] | list[str] | None = None) -> list[dict]:
+        return [t.to_spec() for t in self.tools(names)]
 
     def _norm(self, path: str) -> str:
         p = (path or ".").strip().replace("\\", "/")
@@ -294,6 +299,19 @@ class RepoTools:
         if truncated:
             footer = f"(range cut to {cap} lines; continue from L{e + 1}; total {total} lines)"
         return self._finish(f"{p}:L{s}-L{e}\n{body}\n{footer}")
+
+    @tool
+    async def bash(self, command: Annotated[str, "One read-only shell command, run in the repository root. Pipes are fine. "
+                                             "Show line numbers for anything you will cite: grep -rn PATTERN DIR, or nl -ba FILE | sed -n 'A,Bp'."]) -> ToolResult:
+        """Run one read-only shell command in the repo root (ls, find, grep -n, nl, sed -n, head, tail, wc). No writes, no cd, no .. or absolute paths."""
+        from codeqa.agent import shell
+        out, err = await shell.run(str(command or ""), cwd=self.root)
+        if err:
+            return self._finish(f"ERROR {err}", error=True)
+        if not out.strip():
+            out = "(no output)"
+        self.files_read.extend(shell.seen_spans(str(command), out, self._lines))
+        return self._finish(out)
 
     @tool
     async def list_dir(self, path: Annotated[str, "Directory path, repo-relative. '.' for the root."] = ".") -> ToolResult:

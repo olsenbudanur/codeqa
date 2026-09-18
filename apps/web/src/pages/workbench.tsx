@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { MessageSquarePlus, PanelLeft, Square } from 'lucide-react'
+import { BracketSpinner, ScanLine } from '@/components/working'
 import { navigate } from '@/lib/router'
 import { Wordmark } from '@/components/wordmark'
 import { Toaster, toast } from 'sonner'
@@ -36,6 +37,7 @@ export function Workbench() {
   const [conversations, setConversations] = useState<Conversation[]>(() => listConversations())
   const [activeId, setActiveId] = useState<string | null>(null)
   const [samples, setSamples] = useState<string[]>([])
+  const [liveRun, setLiveRun] = useState<string | null>(null)
   const wide = useMediaQuery('(min-width: 1280px)')
   const pollRef = useRef<number | null>(null)
 
@@ -145,6 +147,19 @@ export function Workbench() {
   const selected = repos.find((r) => r.repo_id === repoId) ?? null
   const running = episode.status === 'running'
 
+  // Green dot on the Workshop button while a training run is writing metrics.
+  useEffect(() => {
+    if (IS_MOCK) return
+    let alive = true
+    const check = () => import('@/lib/workshop').then(({ workshop }) => workshop.runs()).then((rs) => alive && setLiveRun(rs.find((r) => r.live)?.name ?? null)).catch(() => {})
+    void check()
+    const t = window.setInterval(check, 30_000)
+    return () => {
+      alive = false
+      window.clearInterval(t)
+    }
+  }, [])
+
   // Sample questions come from the repository's index.
   useEffect(() => {
     if (!repoId) return
@@ -238,6 +253,10 @@ export function Workbench() {
             <Button variant="ghost" size="sm" onClick={() => navigate('/compare')} className="max-sm:hidden">
               Compare
             </Button>
+            <Button variant="ghost" size="sm" onClick={() => navigate('/workshop/live')} className="max-sm:hidden">
+              {liveRun && <span className="size-1.5 animate-pulse rounded-full bg-verified" aria-label="A run is training" />}
+              Workshop
+            </Button>
             <ModelPicker profiles={profiles} value={profile} onChange={setProfile} disabled={running} />
             <ThemeToggle />
           </header>
@@ -246,33 +265,56 @@ export function Workbench() {
             <main className="flex min-w-0 flex-1 flex-col overflow-y-auto">
               {episode.status === 'idle' ? (
                 <div className="mx-auto flex w-full max-w-[720px] flex-1 flex-col justify-center px-4 py-10 sm:px-6">
-                  <h1 className="mb-1 text-center text-[22px] leading-tight font-medium tracking-tight text-balance">
+                  <h1 className="display mb-2 text-center text-[30px] leading-tight text-balance sm:text-[34px]">
                     {selected ? `Ask about ${repoName(selected)}` : 'Pick a repository to begin'}
                   </h1>
-                  <p className="mx-auto mb-6 max-w-[48ch] text-center text-sm text-muted-foreground">
+                  <p className="mx-auto mb-8 max-w-[52ch] text-center text-[15px] leading-6 text-muted-foreground">
                     {selected
                       ? 'The agent reads the code, then answers with a citation for every claim, verified against the lines it read.'
                       : 'Use the switcher at the top left, or add one from a GitHub URL.'}
                   </p>
-                  <QuestionBox onAsk={onAsk} onStop={stop} running={running} disabled={!selected} disabledReason="Pick a repository to ask about" samples={samples} />
+                  <div className="relative">
+                    <div className="composer-glow" aria-hidden />
+                    <div className="composer-frame bracket bracket-in rounded-xl bg-background">
+                      <span className="bracket-corner tl" aria-hidden />
+                      <span className="bracket-corner tr" aria-hidden />
+                      <span className="bracket-corner bl" aria-hidden />
+                      <span className="bracket-corner br" aria-hidden />
+                      <div className="flex items-center gap-3 border-b px-3.5 py-2 font-mono text-[11.5px] text-muted-foreground">
+                        <span className="flex items-center gap-1.5">
+                          <span className="size-1.5 rounded-full bg-verified" aria-hidden />
+                          {selected ? repoName(selected) : 'no repository'}
+                        </span>
+                        {selected && <span className="max-sm:hidden">{selected.sha.slice(0, 7)}, {selected.files.toLocaleString()} files</span>}
+                        <span className="ml-auto truncate">{profiles.find((p) => p.name === profile)?.label ?? profile}</span>
+                      </div>
+                      <div className="overflow-hidden rounded-xl">
+                        <QuestionBox onAsk={onAsk} onStop={stop} running={running} disabled={!selected} disabledReason="Pick a repository to ask about" samples={samples} bare />
+                      </div>
+                    </div>
+                  </div>
                 </div>
               ) : (
                 <div className="mx-auto w-full max-w-[720px] px-4 pt-8 pb-16 sm:px-6">
                   <div>
-                    <div className="mb-6 flex items-start justify-between gap-4">
+                    <div className="mb-5 flex items-start justify-between gap-4">
                       <p className="text-[17px] leading-snug font-medium">{episode.question}</p>
-                      {running ? (
+                      {running && (
                         <Button variant="outline" size="sm" onClick={stop} className="shrink-0">
                           <Square className="size-3 fill-current" />
                           Stop
                         </Button>
-                      ) : (
-                        <Button variant="outline" size="sm" onClick={newQuestion} className="shrink-0">
-                          <MessageSquarePlus />
-                          Ask another
-                        </Button>
                       )}
                     </div>
+                    {running && (
+                      <div className="mb-6">
+                        <ScanLine />
+                        <p className="mt-2 flex items-center gap-2 font-mono text-[12px] text-muted-foreground">
+                          <BracketSpinner />
+                          {(() => { const n = episode.rows.filter((r) => r.kind === 'call').length; return n === 0 ? 'reading the repository map' : `researching, ${n} ${n === 1 ? 'call' : 'calls'} so far` })()}
+                        </p>
+                      </div>
+                    )}
                     <Ledger rows={episode.rows} running={running} budget={TOOL_BUDGET} onOpen={setOpenSpan} />
                     <AnswerPanel episode={episode} onOpen={setOpenSpan} />
                     {episode.status === 'error' && (
@@ -280,6 +322,12 @@ export function Workbench() {
                         <p>The agent stopped before answering.</p>
                         <p className="mt-0.5 text-xs text-muted-foreground">{episode.error}</p>
                       </div>
+                    )}
+                    {!running && (
+                      <Button variant="outline" onClick={newQuestion} className="mt-8 h-11 w-full">
+                        <MessageSquarePlus />
+                        Ask another question
+                      </Button>
                     )}
                   </div>
                 </div>

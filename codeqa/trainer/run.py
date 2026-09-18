@@ -39,15 +39,22 @@ def parse(argv: list[str] | None = None) -> RunSpec:
     ap.add_argument("--max-tasks", type=int, default=None)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--epochs", type=int, default=1)
+    ap.add_argument("--grounded-credit", type=float, default=0.05, help="reward floor for answers that pass every gate but score 0 (0 disables)")
     ap.add_argument("--wandb-project", default=None)
     ap.add_argument("--if-exists", default="delete", choices=["delete", "resume", "raise", "ask"])
     ap.add_argument("--load-checkpoint", default=None, help="tinker:// path to start from")
+    ap.add_argument("--compute-post-kl", action="store_true", help="also log optim/post_kl (KL after the update; one extra forward pass per step)")
+    ap.add_argument("--kl-penalty", type=float, default=0.0, help="KL-to-base penalty coefficient; > 0 also logs kl_ref/* each step")
     a = ap.parse_args(argv)
     extra = {"load_checkpoint_path": a.load_checkpoint} if a.load_checkpoint else {}
+    if a.compute_post_kl:
+        extra["compute_post_kl"] = True
+    if a.kl_penalty > 0:
+        extra["kl_penalty_coef"] = a.kl_penalty          # config.py adds the KLReferenceConfig for the profile's base model
     spec = RunSpec(tasks=a.tasks, profile=a.profile, run_name=a.run_name, steps=a.steps, variant=a.variant, group_size=a.group_size,
                    groups_per_batch=a.groups_per_batch, lora_rank=a.lora_rank, learning_rate=a.lr, eval_every=a.eval_every,
                    eval_tasks=a.eval_tasks, eval_max_tasks=a.eval_max_tasks, save_every=a.save_every, judge_model=a.judge_model,
-                   offline_judge=a.offline_judge, max_tasks=a.max_tasks, seed=a.seed, epochs=a.epochs, wandb_project=a.wandb_project, extra=extra)
+                   offline_judge=a.offline_judge, max_tasks=a.max_tasks, seed=a.seed, epochs=a.epochs, grounded_credit=a.grounded_credit, wandb_project=a.wandb_project, extra=extra)
     spec.extra["_if_exists"] = a.if_exists
     return spec
 

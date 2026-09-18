@@ -38,8 +38,7 @@
 /* --- Atmosphere: drifting light folds + a bloom behind the hero -------------- */
 .atmosphere {
   position: absolute;
-  inset: 0 0 auto 0;
-  height: 1500px;
+  inset: 0;
   z-index: -1;
   overflow: hidden;
   pointer-events: none;
@@ -110,30 +109,6 @@
 .landing .panel {
   background: var(--background);
   border: 1px solid var(--border);
-}
-
-/* Corner brackets: the citation motif as a frame. */
-.bracket { position: relative; }
-.bracket > .bracket-corner {
-  position: absolute;
-  z-index: 1;
-  width: 12px;
-  height: 12px;
-  border: 1.5px solid var(--verified);
-  pointer-events: none;
-}
-.bracket > .bracket-corner.tl { top: -1px; left: -1px; border-right: 0; border-bottom: 0; }
-.bracket > .bracket-corner.tr { top: -1px; right: -1px; border-left: 0; border-bottom: 0; }
-.bracket > .bracket-corner.bl { bottom: -1px; left: -1px; border-right: 0; border-top: 0; }
-.bracket > .bracket-corner.br { bottom: -1px; right: -1px; border-left: 0; border-top: 0; }
-.bracket-in > .bracket-corner { animation: bracket-close 0.55s cubic-bezier(0.2, 0.8, 0.2, 1) both; animation-delay: 1.3s; }
-.bracket-in > .bracket-corner.tl { --dx: -10px; --dy: -10px; }
-.bracket-in > .bracket-corner.tr { --dx: 10px; --dy: -10px; }
-.bracket-in > .bracket-corner.bl { --dx: -10px; --dy: 10px; }
-.bracket-in > .bracket-corner.br { --dx: 10px; --dy: 10px; }
-@keyframes bracket-close {
-  from { opacity: 0; transform: translate(var(--dx), var(--dy)); }
-  to { opacity: 1; transform: none; }
 }
 
 /* --- Motion ------------------------------------------------------------------ */

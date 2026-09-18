@@ -6,7 +6,8 @@ export interface ToolRow {
   name: ToolName
   args: Record<string, unknown>
   why?: string
-  result?: { summary: string; chars: number }
+  result?: { summary: string; chars: number; text?: string; seconds?: number }
+  startedAt?: number // seconds since episode start (from the API's `t`)
 }
 
 export interface ThinkingRow {
@@ -27,7 +28,8 @@ export interface Episode {
   rows: LogRow[]
   answer?: string
   citations?: CitationItem[]
-  stats?: { tool_calls: number; prompt_tokens: number; completion_tokens: number; seconds: number }
+  stats?: { tool_calls: number; prompt_tokens: number; completion_tokens: number; seconds: number; model_seconds?: number; tool_seconds?: number }
+  format?: { ok: boolean; reason: string }
   error?: string
   startedAt?: number
 }
@@ -72,7 +74,7 @@ function applyEvent(state: Episode, ev: SSEEvent): Episode {
     case 'tool_call':
       return {
         ...state,
-        rows: [...state.rows, { kind: 'call', id: nextId++, name: ev.name, args: ev.args, why: ev.why }],
+        rows: [...state.rows, { kind: 'call', id: nextId++, name: ev.name, args: ev.args, why: ev.why, startedAt: ev.t }],
       }
     case 'tool_result': {
       // Attach to the last unanswered call with the same tool name.
@@ -80,7 +82,8 @@ function applyEvent(state: Episode, ev: SSEEvent): Episode {
       for (let i = rows.length - 1; i >= 0; i--) {
         const r = rows[i]
         if (r.kind === 'call' && r.name === ev.name && !r.result) {
-          rows[i] = { ...r, result: { summary: ev.summary, chars: ev.chars } }
+          const seconds = ev.t !== undefined && r.startedAt !== undefined ? Math.max(0, ev.t - r.startedAt) : undefined
+          rows[i] = { ...r, result: { summary: ev.summary, chars: ev.chars, text: ev.text, seconds } }
           break
         }
       }
@@ -89,9 +92,9 @@ function applyEvent(state: Episode, ev: SSEEvent): Episode {
     case 'answer':
       return { ...state, answer: ev.markdown }
     case 'citations':
-      return { ...state, citations: ev.items }
+      return { ...state, citations: ev.items, format: ev.format_ok === undefined ? state.format : { ok: ev.format_ok, reason: ev.format_reason ?? '' } }
     case 'stats': {
-      const { type: _t, ...stats } = ev
+      const { type: _t, t: _time, ...stats } = ev
       return { ...state, stats }
     }
     case 'done':

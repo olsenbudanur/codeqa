@@ -30,7 +30,7 @@ def eval_repo_prefixes() -> set[str]:
 
 
 def build(lo: float = 0.1, hi: float = 0.9, per_repo_cap: int = 120, keep_unmeasured: bool = False, fast_n: int = 60,
-          seed: int = 7) -> dict[str, Any]:
+          seed: int = 7, refresh_fast: bool = False) -> dict[str, Any]:
     raw = load_raw(RAW_SOURCES)
     tasks, dropped = dedupe(raw)
     from codeqa.datagen.filter import load_passrate
@@ -89,9 +89,16 @@ def build(lo: float = 0.1, hi: float = 0.9, per_repo_cap: int = 120, keep_unmeas
     n_all = write(paths.TASKS_TRAIN / "all.jsonl", capped)
     write(paths.TASKS_RAW / "reserve_hard.jsonl", hard)
     write(paths.TASKS_RAW / "reserve_easy.jsonl", easy + overflow)
-    # fast eval: stratified by repo from the two eval sets
+    # fast eval: keep the ids already in eval/fast.jsonl (baselines were run on them), refreshed from the current records;
+    # only sample anew when there is no file or refresh_fast is set
     fast: list[Task] = []
-    for name in ("deepcodebench_test", "sweqa"):
+    fast_path = paths.TASKS_EVAL / "fast.jsonl"
+    if fast_path.exists() and not refresh_fast:
+        keep_ids = [t.task_id for t in read_all(fast_path, Task)]
+        pool = {t.task_id: t for name in ("deepcodebench_test", "sweqa") for t in read_all(paths.TASKS_EVAL / f"{name}.jsonl", Task)
+                if (paths.TASKS_EVAL / f"{name}.jsonl").exists()}
+        fast = [pool[i] for i in keep_ids if i in pool]
+    for name in (() if fast else ("deepcodebench_test", "sweqa")):
         p = paths.TASKS_EVAL / f"{name}.jsonl"
         if not p.exists():
             continue

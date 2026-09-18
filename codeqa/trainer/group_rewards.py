@@ -15,6 +15,16 @@ from collections.abc import Sequence
 
 NO_ANSWER_PENALTY = -0.1
 NO_ANSWER_STOPS = ("budget", "max_turns")
+GROUNDED_CREDIT = 0.05
+
+
+def grounded_credit(reward: float, gate_failed: str | None, credit: float = GROUNDED_CREDIT) -> float:
+    """Reward floor for an answer that passed every gate (formatted, cited, every citation exists and was read) but
+    scored 0 on correctness: shaped = max(reward, credit). Keeps the ladder stall -0.1 < no citations 0 < grounded-but-wrong
+    0.05 < correct, so the bracket-citation format gets a gradient before correctness does. Returns the *addition*."""
+    if gate_failed is not None:
+        return 0.0
+    return max(credit - reward, 0.0)
 
 
 def no_answer_penalty(stop_reason: str, gate_failed: str | None) -> float:

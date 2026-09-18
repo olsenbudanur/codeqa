@@ -21,7 +21,7 @@ class RunSpec:
     steps: int | None = None
     variant: str = "none"                  # grader efficiency variant: none | multiplicative | hard_cap | token_cost
     group_size: int = 8
-    groups_per_batch: int = 32
+    groups_per_batch: int = 32           # 16 -> 32 after the training-file probe (LOG 2026-09-19 15:40): ~4 groups/step carry a correctness signal
     lora_rank: int = 32
     learning_rate: float | None = None     # None -> hyperparam_utils.get_lr(base model, LoRA)
     eval_every: int = 10
@@ -32,6 +32,7 @@ class RunSpec:
     offline_judge: bool = False            # KeywordJudge; smoke tests only
     max_tasks: int | None = None
     seed: int = 0
+    grounded_credit: float = 0.05          # shaping floor for gate-passing wrong answers (0 = off)
     epochs: int = 1                        # passes over the task file; steps = epochs * ceil(tasks / groups_per_batch) unless --steps caps it
     wandb_project: str | None = None
     wandb_name: str | None = None
@@ -51,7 +52,7 @@ def build_config(spec: RunSpec) -> train.Config:
     lr = spec.learning_rate or hyperparam_utils.get_lr(base, is_lora=True)
     dataset_builder = CodeQADatasetBuilder(
         tasks_path=spec.tasks, profile_name=spec.profile, group_size=spec.group_size, groups_per_batch=spec.groups_per_batch,
-        variant=spec.variant, judge_model=spec.judge_model, offline_judge=spec.offline_judge, max_tasks=spec.max_tasks, seed=spec.seed, epochs=spec.epochs,
+        variant=spec.variant, judge_model=spec.judge_model, offline_judge=spec.offline_judge, max_tasks=spec.max_tasks, seed=spec.seed, epochs=spec.epochs, grounded_credit=spec.grounded_credit,
     )
     evaluator_builders = []
     if spec.eval_tasks:
@@ -59,6 +60,9 @@ def build_config(spec: RunSpec) -> train.Config:
         evaluator_builders.append(lambda: HeldoutEvaluator(
             spec.eval_tasks, spec.profile, max_tokens=profile.max_generation_tokens, name="eval/fast", variant=spec.variant,
             judge_model=spec.judge_model, offline_judge=spec.offline_judge, max_tasks=spec.eval_max_tasks))
+    extra = dict(spec.extra)
+    if extra.get("kl_penalty_coef", 0) > 0 and "kl_reference_config" not in extra:
+        extra["kl_reference_config"] = train.KLReferenceConfig(base_model=base)   # KL to the untrained base, logged as kl_ref/*
     return train.Config(
         model_name=base,
         recipe_name="codeqa_rl",
@@ -77,6 +81,6 @@ def build_config(spec: RunSpec) -> train.Config:
         num_groups_to_log=spec.num_groups_to_log,
         wandb_project=spec.wandb_project,
         wandb_name=spec.wandb_name or (spec.run_name if spec.wandb_project else None),
-        load_checkpoint_path=spec.extra.get("load_checkpoint_path"),
-        **{k: v for k, v in spec.extra.items() if k != "load_checkpoint_path"},
+        load_checkpoint_path=extra.get("load_checkpoint_path"),
+        **{k: v for k, v in extra.items() if k != "load_checkpoint_path"},
     )

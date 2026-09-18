@@ -59,14 +59,16 @@ def client(data_dir: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
 
     profile = EndpointProfile(name="scripted", kind="anthropic", model="scripted")
     monkeypatch.setattr(server, "load_profiles", lambda: {"scripted": profile})
-    monkeypatch.setattr(server, "get_profile", lambda name: profile)
+    monkeypatch.setattr(server, "checkpoint_profiles", lambda: {})
 
     async def fake_client_for(name: str):
         return ScriptedClient(profile)
 
     monkeypatch.setattr(server, "client_for", fake_client_for)
     monkeypatch.setenv("CODEQA_WARM_CLIENTS", "0")
-    return TestClient(server.app)
+    c = TestClient(server.app)
+    c.headers["Authorization"] = "Bearer Action!"
+    return c
 
 
 def test_repos_lists_indexed_repos_and_hides_nodoc(client: TestClient) -> None:
@@ -77,7 +79,7 @@ def test_repos_lists_indexed_repos_and_hides_nodoc(client: TestClient) -> None:
 
 
 def test_profiles(client: TestClient) -> None:
-    assert client.get("/profiles").json() == [{"name": "scripted", "kind": "anthropic", "model": "scripted", "label": "scripted", "note": "judge"}]
+    assert client.get("/profiles").json() == [{"name": "scripted", "kind": "anthropic", "model": "scripted", "label": "scripted", "note": "judge", "source": "profiles.yaml"}]
 
 
 def test_file_reads_ranges_and_refuses_escapes(client: TestClient) -> None:
@@ -104,6 +106,8 @@ def test_ask_streams_c9_events_with_grader_citations(client: TestClient) -> None
     assert types == ["thinking", "tool_call", "tool_result", "answer", "stats", "citations", "done"]
     assert events[1]["name"] == "read_file" and events[1]["args"]["start"] == 1
     assert events[3]["markdown"].startswith("Line two")
+    assert events[5]["format_ok"] is True and events[5]["format_reason"] == ""
+    assert all("t" in e for e in events[:6]) and events[4]["model_seconds"] >= 0 and events[4]["tool_seconds"] >= 0
     cits = events[5]["items"]
     assert cits == [
         {"path": "pkg/mod.py", "start": 2, "end": 3, "exists": True, "verified": True},
@@ -140,3 +144,44 @@ def test_suggestions_fall_back_to_generic_without_symbols(client: TestClient) ->
     assert r["repo_id"] == REPO_ID and len(r["questions"]) == 3
     assert "widgets" in r["questions"][0]
     assert client.get("/repos/x__y__0000000/suggestions").status_code == 404
+
+
+def test_password_gate(client: TestClient) -> None:
+    bare = TestClient(client.app)
+    assert bare.get("/repos").status_code == 401
+    assert bare.get("/health").status_code == 200
+    assert bare.post("/auth/login", json={"password": "nope"}).status_code == 401
+    assert bare.post("/auth/login", json={"password": "Action!"}).json() == {"ok": True}
+    assert bare.get("/repos", headers={"X-Password": "Action!"}).status_code == 200
+
+
+def test_checkpoint_profiles_are_listed_and_askable(client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    import apps.api.server as server
+    logs = tmp_path / "logs"
+    (logs / "r9").mkdir(parents=True)
+    (logs / "r9" / "config.json").write_text(json.dumps({"model_name": "Qwen/Qwen3.5-4B", "renderer_name": "qwen3_5", "max_tokens": 1024}))
+    (logs / "r9" / "checkpoints.jsonl").write_text(json.dumps({"name": "000002", "batch": 2, "sampler_path": "tinker://x/sampler_weights/000002"}) + "\n")
+    monkeypatch.setattr(paths, "LOGS", logs)
+    # override the fixture's stub with one synthesized checkpoint profile
+    monkeypatch.setattr(server, "checkpoint_profiles", lambda: {"qwen4b-r9-step2": server.EndpointProfile(name="qwen4b-r9-step2", kind="tinker", model="tinker://x/sampler_weights/000002", base_model="Qwen/Qwen3.5-4B", renderer="qwen3_5")})
+    rows = client.get("/profiles").json()
+    ck = next(r for r in rows if r["name"] == "qwen4b-r9-step2")
+    assert ck["source"] == "checkpoints" and ck["label"] == "Qwen3.5-4B, trained" and "checkpoint" in ck["note"]
+    assert client.post("/ask", json={"repo_id": REPO_ID, "question": "q", "profile": "qwen4b-r9-step2"}).status_code == 200
+
+
+def test_format_failure_is_reported(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    import apps.api.server as server
+
+    class NoCite(ScriptedClient):
+        async def chat(self, messages, tools=None, max_tokens=None, temperature=1.0):
+            return Message(role="assistant", content="Line two says so, trust me.", usage={"prompt_tokens": 10, "completion_tokens": 5})
+
+    async def fake(name: str):
+        return NoCite(server.EndpointProfile(name="scripted", kind="anthropic", model="scripted"))
+
+    monkeypatch.setattr(server, "client_for", fake)
+    with client.stream("POST", "/ask", json={"repo_id": REPO_ID, "question": "q", "profile": "scripted"}) as r:
+        events = read_sse(r.read().decode())
+    cit = next(e for e in events if e["type"] == "citations")
+    assert cit["format_ok"] is False and "citation" in cit["format_reason"].lower()

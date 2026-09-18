@@ -79,7 +79,8 @@ def read_json(p: Path, default: Any = None) -> Any:
 # Runs
 # ---------------------------------------------------------------------------
 
-METRIC_PREFIXES = ("env/", "eval/", "optim/", "progress/")
+METRIC_PREFIXES = ("env/", "eval/", "optim/", "progress/", "kl_ref/", "loss/", "time/train_step", "time/total",
+                   "time/compute_group_rewards:total", "time/policy_sample:total", "time/env_step:total", "time/run_evaluations_parallel")
 LIVE_SECONDS = 180.0
 
 
@@ -159,7 +160,21 @@ def get_run(name: str) -> dict[str, Any]:
         raise HTTPException(404, f"unknown run {name}")
     cfg = read_json(run_dir(name) / "config.json", {}) or {}
     checkpoints = read_jsonl(run_dir(name) / "checkpoints.jsonl")
-    return {**row, "config_full": cfg, "metrics": _run_metrics(name), "checkpoints": checkpoints}
+    metrics = _run_metrics(name)
+    return {**row, "config_full": cfg, "metrics": metrics, "checkpoints": checkpoints, "warnings": run_warnings(metrics)}
+
+
+def run_warnings(rows: list[dict[str, Any]]) -> list[str]:
+    """The same collapse checks the CLI monitor prints (`codeqa.evals.monitor.checks`), so the two never disagree.
+    Import-rule note: apps/api reaches into evals for this one pure function; a move to codeqa/shared is requested in LOG."""
+    try:
+        from codeqa.evals.monitor import checks
+    except Exception:  # noqa: BLE001 — monitor is optional
+        return []
+    try:
+        return list(checks(rows))
+    except Exception as e:  # noqa: BLE001
+        return [f"health checks failed: {type(e).__name__}: {e}"]
 
 
 def _iteration_path(name: str, n: int) -> Path:
@@ -432,6 +447,9 @@ def _task_index() -> dict[str, dict[str, Any]]:
                 idx.setdefault(t["task_id"], t)
         for extra in ("smoke_graphiti", "run1", "run1_verifiable"):
             for t in _tasks("train", extra):
+                idx.setdefault(t["task_id"], t)
+        for extra in ("reserve_easy", "reserve_hard", "smoke_codescout", "smoke_deepcodebench"):
+            for t in _tasks("raw", extra):
                 idx.setdefault(t["task_id"], t)
         return idx
     return cached("task-index", paths.TASKS, build)

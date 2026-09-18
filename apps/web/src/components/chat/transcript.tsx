@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Check, ChevronRight } from 'lucide-react'
+import { Dots } from '@/components/working'
+import { ThinkingBlock, ThinkingToggleAll } from '@/components/research/thinking-block'
 import type { Span } from '@/lib/contracts'
 import { cn } from '@/lib/utils'
 import type { Episode, LogRow, ToolRow } from '@/state/episode'
@@ -108,8 +110,17 @@ function resultNote(r: ToolRow): string {
 }
 
 function Activity({ rows, running, onOpen, className }: { rows: LogRow[]; running: boolean; onOpen: (s: Span) => void; className?: string }) {
+  const [allOpen, setAllOpen] = useState(false)
+  const [openIds, setOpenIds] = useState<Set<number>>(new Set())
+  const thoughts = rows.filter((r) => r.kind === 'thinking').length
+  const toggleOne = (id: number) => setOpenIds((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n })
   return (
     <ol className={cn('space-y-2', className)} aria-label="Activity">
+      {thoughts > 1 && (
+        <li className="pl-[22px]">
+          <ThinkingToggleAll count={thoughts} allOpen={allOpen} onToggle={() => setAllOpen((v) => !v)} />
+        </li>
+      )}
       {rows.length === 0 && running && (
         <li className="row-in flex items-center gap-2 text-[13px] text-muted-foreground">
           <Dot pending />
@@ -119,8 +130,8 @@ function Activity({ rows, running, onOpen, className }: { rows: LogRow[]; runnin
       {rows.map((r) => {
         if (r.kind === 'thinking') {
           return (
-            <li key={r.id} className="row-in pl-[22px] text-[13px] leading-5 text-muted-foreground line-clamp-2">
-              {r.text}
+            <li key={r.id} className="row-in pl-[22px]">
+              <ThinkingBlock text={r.text} open={allOpen || openIds.has(r.id)} onToggle={() => (allOpen ? setAllOpen(false) : toggleOne(r.id))} compact />
             </li>
           )
         }
@@ -150,7 +161,7 @@ function Dot({ pending, running = true }: { pending: boolean; running?: boolean 
   return (
     <span className="mt-[5px] flex size-3.5 shrink-0 items-center justify-center" aria-hidden>
       {pending ? (
-        <span className={cn('size-1.5 rounded-full bg-foreground/60', running && 'animate-pulse')} />
+        running ? <Dots className="text-verified" /> : <span className="size-1.5 rounded-full bg-foreground/60" />
       ) : (
         <Check className="dot-done size-3.5 text-verified" strokeWidth={3} />
       )}

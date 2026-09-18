@@ -97,6 +97,8 @@ def metrics(result: GradeResult, trace: Trace, task: Task) -> dict[str, float]:
         "answer_tokens": float(gates.approx_tokens(gates.extract_answer(trace))),
         "redundant_reads": float(redundant_reads(trace.stats.files_read)),
         "turns": float(trace.stats.turns),
+        "correct": 1.0 if (not nan and result.reward > 0) else 0.0,                  # binary; tool_calls / correct = calls per correct answer
+        "stalled": 1.0 if trace.stats.stop_reason in ("budget", "max_turns") else 0.0,   # ended without answering
     }
     for g in ("format", "citations", "grounding", "budget", "judge_error"):
         m[f"gate_{g}"] = 1.0 if result.gate_failed == g else 0.0

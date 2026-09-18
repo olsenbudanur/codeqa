@@ -14,7 +14,7 @@ The product UI: a home page and a workbench where a user picks a repository, ask
 | gap_specs §8 | `POST /repos {url, sha?}` → `{job_id}`; `GET /repos/{job_id}/status` → `{repo_id, stage, progress, seconds, message?}` drives the index stepper. |
 | file viewer | `GET /file?repo_id&path` → full file text (the viewer scrolls to and highlights the cited range itself). |
 
-Produces nothing on disk. Holds no secrets; the API does.
+Produces nothing on disk. Holds no secrets; the API does. Every route except `/` sits behind a password screen (`components/password-gate.tsx`); the password is kept in localStorage and sent as `Authorization: Bearer` on every API call (`lib/auth.ts`). A 401 from any endpoint clears it and shows the gate again. In mock mode the check is local against the same default (`Action!`).
 
 ## Run
 
@@ -26,7 +26,7 @@ pnpm test                        # vitest: citation helpers, C9 reducer over the
 pnpm typecheck && pnpm lint && pnpm build
 ```
 
-Routes: `/` home page (hero replays the recorded episode), `/app` workbench, `/compare` one question on two profiles side by side (demo beat 6).
+Routes: `/` home page (hero replays the recorded episode), `/app` workbench, `/compare` one question to up to four models side by side, first column as baseline (demo beat 6; `?models=a,b,c` prefills), `/workshop/live` one-screen training monitor (auto-picks the run writing metrics, 10 s refresh, tab title shows step and reward, toasts on new warnings), `/workshop/{runs,checkpoints,data,traces}` the read-only workshop (D6; needs `VITE_API_URL`).
 
 ## Layout
 
@@ -36,16 +36,14 @@ mock/                events.json (C9 stream from data/smoke_episode3.log, one ci
 src/lib/             contracts.ts (TS mirror), citations.ts (one parser), api.ts (HttpApi | MockApi, picked by VITE_API_URL), sse.ts, router.ts, history.ts (saved conversations, localStorage, capped at 100)
 src/state/episode.ts C9 events -> research rows, answer, citations, stats
 src/hooks/           use-episode (ask/stop), use-dictation (Web Speech API), use-replay (home hero), use-media-query
-src/pages/           home.tsx, workbench.tsx
-src/components/      repo/ (repo switcher dropdown, conversations list, index stepper), ask/ (question box + mic), research/ (ledger), answer/ (markdown, chips, sources, stats), file/ (CodeMirror 6 viewer)
+src/pages/           home.tsx, workbench.tsx, compare.tsx, workshop/ (index shell, runs, checkpoints, data, traces)
+src/components/      workshop/ (charts on recharts using the dataviz reference palette: --series-1..4; shared panels), repo/ (repo switcher dropdown, conversations list, index stepper), ask/ (question box + mic), research/ (ledger), answer/ (markdown, chips, sources, stats), file/ (CodeMirror 6 viewer)
 tests/               vitest
 ```
 
 ## Home page design
 
-Direction from four installed skills (`.agents/skills/`, symlinked into `.claude/skills/`): `tech-green-dark-mode-modern` and `framed-tech-dark-border-gradient` (matte dark field, emerald signal, 1px gradient-border frames, corner brackets, mono rails), `atmosphere-background` (slow drifting light folds and a bloom, CSS only, confined to the hero), `product-proof-saas` (the real product as the hero proof, labeled sample, no fake proof) and `landing-page-design` (above-the-fold formula, section order). Plus `light-mode-paper-technical` and `beautiful-shadows`, installed for an earlier paper-toned pass and kept for reuse.
-
-Concept: the page behaves like a cited answer. The headline ends in a live citation chip that verifies itself; the hero frame is a chat transcript (`components/chat/transcript.tsx`) replaying the recorded episode: the question as the user's turn, activity rows streaming into the assistant turn, collapsing to "Researched in 3 calls, 9.8 s" when the answer lands. The transcript viewport is fixed-height and pinned to the newest content, so the hero never resizes. "How it works" uses the product's own components stepping through the episode; the footer is a `Sources:` block naming where every number on the page comes from. Motion: masked word reveal, elements rising in sequence, brackets closing in, chips stamping in when verified, section rules drawing in. Everything renders its final state under `prefers-reduced-motion`. The hero is sized to fit a 900px viewport with the chat frame fully visible.
+One screen: header, headline with a self-verifying citation chip, one-line summary, the product replaying the recorded episode in a chat frame (`components/chat/transcript.tsx`, fixed height, pinned to the newest turn), four one-line steps, footer. Dark matte field with an emerald atmosphere confined to the hero (from the `tech-green-dark-mode-modern`, `framed-tech-dark-border-gradient` and `atmosphere-background` skills in `.agents/skills/`). Motion: masked word reveal, elements rising in order, brackets closing in, chips stamping in when verified; final states under `prefers-reduced-motion`. Fits a 900px viewport; a `short:` variant compacts it under 800px.
 
 ## Decisions
 

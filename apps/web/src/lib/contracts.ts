@@ -32,6 +32,7 @@ export interface Profile {
   model: string
   label?: string
   note?: string
+  source?: 'profiles.yaml' | 'checkpoints'
 }
 
 // C9 · product stream events
@@ -44,13 +45,14 @@ export interface CitationItem {
   verified: boolean
 }
 
+// `t` = seconds since the episode started, stamped by the API on every event (optional; the driver itself does not send it).
 export type SSEEvent =
-  | { type: 'thinking'; text: string }
-  | { type: 'tool_call'; name: ToolName; args: Record<string, unknown>; why?: string }
-  | { type: 'tool_result'; name: ToolName; summary: string; chars: number }
-  | { type: 'answer'; markdown: string }
-  | { type: 'citations'; items: CitationItem[] }
-  | { type: 'stats'; tool_calls: number; prompt_tokens: number; completion_tokens: number; seconds: number }
+  | { type: 'thinking'; text: string; t?: number }
+  | { type: 'tool_call'; name: ToolName; args: Record<string, unknown>; why?: string; t?: number }
+  | { type: 'tool_result'; name: ToolName; summary: string; chars: number; text?: string; t?: number }
+  | { type: 'answer'; markdown: string; t?: number }
+  | { type: 'citations'; items: CitationItem[]; format_ok?: boolean; format_reason?: string; t?: number }
+  | { type: 'stats'; tool_calls: number; prompt_tokens: number; completion_tokens: number; seconds: number; model_seconds?: number; tool_seconds?: number; t?: number }
   | { type: 'done' }
   | { type: 'error'; message: string }
 

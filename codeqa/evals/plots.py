@@ -18,7 +18,9 @@ from codeqa.shared import paths
 
 HEADLINE_KEYS = ("reward", "correctness", "citations_grounded", "tool_calls_per_correct")
 EXTRA_KEYS = ("format_ok", "citations_parse", "prompt_tokens", "answer_tokens", "judge_error", "group_reward_std", "unique_tool_sequences_per_group")
-TITLES = {"reward": "reward", "correctness": "correctness", "citations_grounded": "citation validity (grounded)",
+OPTIM_KEYS = ("optim/entropy", "optim/kl_sample_train_v1", "optim/post_kl", "kl_ref/kl")
+TITLES = {"optim/entropy": "policy entropy", "optim/kl_sample_train_v1": "KL sampler vs trainer", "optim/post_kl": "KL after update",
+          "kl_ref/kl": "KL to reference model", "reward": "reward", "correctness": "correctness", "citations_grounded": "citation validity (grounded)",
           "tool_calls_per_correct": "tool calls per correct answer", "format_ok": "format ok", "citations_parse": "citations parse",
           "prompt_tokens": "prompt tokens / episode", "answer_tokens": "answer tokens", "judge_error": "judge error rate",
           "group_reward_std": "group reward std", "unique_tool_sequences_per_group": "unique tool sequences / group"}
@@ -39,6 +41,11 @@ def series(rows: list[dict[str, Any]], prefix: str, key: str) -> tuple[list[int]
         step = r.get("step", r.get("progress/batch"))
         if step is None:
             continue
+        if key.startswith(("optim/", "kl_ref/", "time/")):          # absolute keys, no prefix
+            v = r.get(key)
+            if v is None:
+                continue
+            xs.append(int(step)); ys.append(float(v)); continue
         if key == "tool_calls_per_correct":
             calls, rew = r.get(f"{prefix}/tool_calls"), r.get(f"{prefix}/reward")
             if calls is None or rew is None:
@@ -67,7 +74,7 @@ def plot_runs(runs: list[str], out_dir: Path, keys: tuple[str, ...] = HEADLINE_K
         fig, axes = plt.subplots(nrows, ncols, figsize=(4.2 * ncols, 3.0 * nrows), squeeze=False)
         for ax, key in zip(axes.flat, keys_):
             for run, rows in data.items():
-                for prefix, style in (("env/all", "-"), ("eval/fast/env/all", "--")):
+                for prefix, style in ((("env/all", "-"), ("eval/fast/env/all", "--")) if not key.startswith(("optim/", "kl_ref/")) else (("", "-"),)):
                     xs, ys = series(rows, prefix, key)
                     if xs:
                         ax.plot(xs, ys, style, marker="o", ms=3, label=f"{run} {'train' if prefix == 'env/all' else 'eval'}")
@@ -88,6 +95,8 @@ def plot_runs(runs: list[str], out_dir: Path, keys: tuple[str, ...] = HEADLINE_K
 
     draw(HEADLINE_KEYS, "headline", 4)
     draw(keys, "all_curves", 4)
+    if any(any(k in r for k in OPTIM_KEYS) for rows in data.values() for r in rows):
+        draw(OPTIM_KEYS, "optimizer", 4)
     return written
 
 

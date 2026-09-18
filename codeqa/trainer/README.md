@@ -25,9 +25,12 @@ uv run python -u -m codeqa.trainer.run --tasks data/tasks/eval/smoke_sweqa_flask
 3. No-answer penalty (decisions.md evening #2): an episode that ends at `budget` or `max_turns` without a final answer gets −0.1
    (`group_rewards.no_answer_penalty`); a format failure on an actual answer stays 0, so a bad answer still beats stalling.
    `env/all/reward` is the grader's reward, `env/all/reward_shaped` the trained total, `env/all/no_answer_penalty` the rate.
-4. Judge failures: the grader returns NaN; here they become 0 + mean(healthy siblings), so their advantage is exactly 0. A group
+4. Grounded-citation credit (lead, 2026-09-19): an answer that passes every gate but scores 0 gets a floor of +0.05
+   (`group_rewards.grounded_credit`, `--grounded-credit`, 0 disables). Ladder: stall −0.1 < no citations 0 < grounded-but-wrong 0.05 < correct.
+   The held-out evaluator reports the unshaped reward (`eval/fast/env/all/reward`); `env/all/reward_shaped` is what trains.
+5. Judge failures: the grader returns NaN; here they become 0 + mean(healthy siblings), so their advantage is exactly 0. A group
    where every sample failed is constant and dropped by `remove_constant_reward_groups`.
-5. Every grader metric is attached per trajectory; the cookbook means them into `env/all/<key>`, `env/<source>/<key>`,
+6. Every grader metric is attached per trajectory; the cookbook means them into `env/all/<key>`, `env/<source>/<key>`,
    `env/<task_type>/<key>`. Group metrics (`group_reward_std`, `unique_tool_sequences_per_group`, `judge_error_rate`) ride along.
 
 ## Metric keys in metrics.jsonl
@@ -35,8 +38,23 @@ uv run python -u -m codeqa.trainer.run --tasks data/tasks/eval/smoke_sweqa_flask
 `env/all/reward/total` (cookbook), `env/all/reward`, `format_ok`, `citations_parse`, `citations_exist`, `citations_grounded`,
 `identifier_grounded`, `correctness`, `efficiency`, `judge_error`, `tool_calls`, `tool_errors`, `prompt_tokens`, `completion_tokens`,
 `answer_tokens`, `redundant_reads`, `turns`, `gate_<format|citations|grounding|budget|judge_error>`, `stop_<reason>`,
-`reward_shaped`, `no_answer_penalty`, `group_reward_std`, `group_reward_mean`, `unique_tool_sequences_per_group`, `judge_error_rate`, `group_all_judge_errors`;
+`reward_shaped`, `no_answer_penalty`, `grounded_credit`, `group_reward_std`, `group_reward_mean`, `unique_tool_sequences_per_group`, `judge_error_rate`, `group_all_judge_errors`;
 the same under `eval/fast/env/all/` for the held-out set (plus `eval/fast/env/all/by_group/*` from the cookbook); `optim/lr`, `progress/*`, `time/*` from the cookbook.
+
+## Run one (as decided; the lead launches)
+
+```
+uv run python -u -m codeqa.trainer.run --tasks data/tasks/train/all.jsonl --profile qwen4b-base --run-name run1 \
+    --lr 1e-4 --group-size 8 --groups-per-batch 32 --steps 50 --eval-tasks data/tasks/eval/fast.jsonl --eval-every 10 --save-every 10
+```
+32 groups/step because only ~12 % of groups carry a correctness signal at step 0 (LOG 2026-09-19 15:40); 1,489 tasks / 32 = 47 batches
+per epoch, so 50 steps ≈ 1.07 epochs (`--epochs 2` if you go past 47 steps).
+
+## SFT warm start (only if `env/all/citations_parse` is flat by step 10)
+
+`codeqa/trainer/sft.py`: `build` turns Claude traces over TRAINING tasks into cookbook conversations rendered exactly as `RepoEnv`
+renders them (tool prefix + prompt), keeping only gate-passing, reward ≥ 0.5 traces; `train` runs the cookbook supervised loop.
+Generating ~200 traces costs ≈ $30 of Sonnet (60k input tokens per episode); see the module docstring for the three commands.
 
 ## Run two (from a run-one checkpoint)
 
@@ -51,5 +69,5 @@ uv run python -u -m codeqa.trainer.run --tasks data/tasks/train/run1_verifiable.
 
 ## Monitoring
 
-`uv run python -m codeqa.evals.monitor --run run1` prints the per-step table, the held-out rows, the collapse checks
+`uv run python -m codeqa.evals.monitor --run run1` prints the per-step table, the held-out rows, the optimizer table (lr, entropy, sampler-vs-trainer KL, post-update KL with `--compute-post-kl`, KL to base with `--kl-penalty`), the collapse checks
 (group reward std, unique tool sequences, stop-by-budget/max-turns rate, format gate, judge errors) and writes `plots/`.

@@ -1,6 +1,6 @@
 import pytest
 
-from codeqa.trainer.group_rewards import advantages, fill_judge_errors, group_metrics, no_answer_penalty, unique_tool_sequences
+from codeqa.trainer.group_rewards import advantages, fill_judge_errors, grounded_credit, group_metrics, no_answer_penalty, unique_tool_sequences
 
 
 def test_one_nan_in_group_of_8_gets_zero_advantage_others_unchanged():
@@ -34,3 +34,13 @@ def test_no_answer_penalty_only_for_stalled_episodes():
     assert no_answer_penalty("answer", "citations") == 0.0
     assert no_answer_penalty("answer", None) == 0.0
     assert no_answer_penalty("parse_error", "format") == 0.0     # cookbook handles parse errors / overflow with its own terms
+
+
+def test_grounded_credit_ladder():
+    assert grounded_credit(0.0, None) == pytest.approx(0.05)        # passed every gate, wrong: floor
+    assert grounded_credit(0.02, None) == pytest.approx(0.03)       # partial credit below the floor is lifted to it
+    assert grounded_credit(0.5, None) == 0.0                        # real correctness untouched
+    assert grounded_credit(0.0, "citations") == 0.0                 # no citations: stays 0
+    assert grounded_credit(0.0, "format") == 0.0
+    shaped = [-0.1, 0.0, 0.0 + grounded_credit(0.0, None), 1.0]     # stall < no citations < grounded-wrong < correct
+    assert shaped == sorted(shaped) and len(set(shaped)) == 4

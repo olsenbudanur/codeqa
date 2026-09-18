@@ -3,7 +3,7 @@ import math
 from codeqa.grader.grade import grade, metrics
 from codeqa.grader.judge import KeywordJudge
 
-REQUIRED_METRICS = {"reward", "format_ok", "citations_parse", "citations_exist", "citations_grounded", "identifier_grounded",
+REQUIRED_METRICS = {"correct", "stalled", "reward", "format_ok", "citations_parse", "citations_exist", "citations_grounded", "identifier_grounded",
                     "correctness", "efficiency", "judge_error", "tool_calls", "prompt_tokens", "answer_tokens", "redundant_reads"}
 
 

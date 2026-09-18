@@ -25,7 +25,7 @@ from codeqa.shared import paths
 from codeqa.shared.contracts import GradeResult, Task, Trace
 from codeqa.shared.jsonl import read_all
 from codeqa.shared.profiles import get_profile
-from codeqa.trainer.group_rewards import fill_judge_errors, group_metrics, nan_safe, no_answer_penalty
+from codeqa.trainer.group_rewards import fill_judge_errors, grounded_credit, group_metrics, nan_safe, no_answer_penalty
 
 logger = logging.getLogger(__name__)
 
@@ -59,8 +59,9 @@ class CodeQAGroupBuilder(EnvGroupBuilder):
     """Holds only strings and numbers so it stays pickleable; RepoEnvs are built in make_envs."""
 
     def __init__(self, task: Task, profile_name: str, group_size: int, variant: str = "none",
-                 judge_model: str | None = None, offline_judge: bool = False):
+                 judge_model: str | None = None, offline_judge: bool = False, grounded_credit: float = 0.05):
         self.task = task
+        self.grounded_credit = grounded_credit
         self.profile_name = profile_name
         self.group_size = group_size
         self.variant = variant
@@ -103,14 +104,16 @@ class CodeQAGroupBuilder(EnvGroupBuilder):
         traces = [self._trace(renv, cb, traj) for renv, cb, traj in zip(self._envs, env_group, trajectory_group)]
         results = await asyncio.gather(*(self._grade(t) for t in traces))
         penalties = [no_answer_penalty(t.stats.stop_reason, r.gate_failed) for t, r in zip(traces, results)]
-        rewards = [nan_safe(r.reward) + p for r, p in zip(results, penalties)]
+        credits = [0.0 if math.isnan(r.reward) else grounded_credit(r.reward, r.gate_failed, self.grounded_credit) for r in results]
+        rewards = [nan_safe(r.reward) + p + c for r, p, c in zip(results, penalties, credits)]
         errored = [math.isnan(r.reward) for r in results]
         _, totals = fill_judge_errors(rewards, errored)
         gm = group_metrics(totals, errored, [tool_sequence(t) for t in traces])
         out: list[tuple[float, Metrics]] = []
-        for total, r, t, p in zip(totals, results, traces, penalties):
+        for total, r, t, p, c in zip(totals, results, traces, penalties, credits):
             m = grade_metrics(r, t, self.task)          # m["reward"] stays the grader's reward; the shaped total is separate
             m["no_answer_penalty"] = float(p != 0.0)
+            m["grounded_credit"] = float(c != 0.0)
             m["reward_shaped"] = total
             m.update(gm)
             out.append((total, m))
@@ -154,8 +157,8 @@ def load_tasks(path: Path, max_tasks: int | None = None, seed: int = 0, shuffle:
 
 
 def builders_for(tasks: list[Task], profile_name: str, group_size: int, variant: str, judge_model: str | None,
-                 offline_judge: bool = False) -> list[EnvGroupBuilder]:
-    return [CodeQAGroupBuilder(t, profile_name, group_size, variant, judge_model, offline_judge) for t in tasks]
+                 offline_judge: bool = False, grounded_credit: float = 0.05) -> list[EnvGroupBuilder]:
+    return [CodeQAGroupBuilder(t, profile_name, group_size, variant, judge_model, offline_judge, grounded_credit) for t in tasks]
 
 
 @chz.chz
@@ -170,12 +173,13 @@ class CodeQADatasetBuilder(RLDatasetBuilder):
     max_tasks: int | None = None
     seed: int = 0
     epochs: int = 1
+    grounded_credit: float = 0.05        # 0 disables the shaping floor for gate-passing wrong answers
 
     async def __call__(self) -> tuple[RLDataset, RLDataset | None]:
         tasks = load_tasks(Path(self.tasks_path), self.max_tasks, self.seed)
         if not tasks:
             raise RuntimeError(f"no usable tasks in {self.tasks_path}")
-        builders = builders_for(tasks, self.profile_name, self.group_size, self.variant, self.judge_model, self.offline_judge)
+        builders = builders_for(tasks, self.profile_name, self.group_size, self.variant, self.judge_model, self.offline_judge, self.grounded_credit)
         ds = CodeQADataset(builders, self.groups_per_batch, self.epochs)
         logger.info("dataset: %d tasks -> %d batches of up to %d groups x %d (%d epochs)", len(tasks), len(ds),
                     self.groups_per_batch, self.group_size, self.epochs)

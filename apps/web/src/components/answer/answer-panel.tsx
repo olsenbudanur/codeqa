@@ -6,6 +6,7 @@ import { formatRange, linkifyCitations, parseCitations, parseCiteHref, spanKey }
 import type { Episode } from '@/state/episode'
 import { filesRead } from '@/state/episode'
 import { cn } from '@/lib/utils'
+import { CircleAlert } from 'lucide-react'
 import { CitationChip, type Verdict } from './citation-chip'
 
 const fmt = new Intl.NumberFormat('en-US')
@@ -28,7 +29,7 @@ function contains(outer: Span, inner: Span) {
 }
 
 export function AnswerPanel({ episode, onOpen, compact, bare }: { episode: Episode; onOpen: (s: Span) => void; compact?: boolean; bare?: boolean }) {
-  const { answer, citations, stats, status, rows } = episode
+  const { answer, citations, stats, status, rows, format } = episode
   const read = useMemo(() => filesRead(rows), [rows])
 
   const { body, notes } = useMemo(() => splitSources(answer ?? ''), [answer])
@@ -60,6 +61,15 @@ export function AnswerPanel({ episode, onOpen, compact, bare }: { episode: Episo
           </span>
         )}
       </header>
+      {format && !format.ok && (
+        <div role="alert" className="mb-4 flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2.5 text-sm">
+          <CircleAlert className="mt-0.5 size-4 shrink-0 text-destructive" aria-hidden />
+          <div>
+            <p className="font-medium">This answer fails the format check, so in training it would score 0.</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">{explainFormat(format.reason)}</p>
+          </div>
+        </div>
+      )}
       <div className={bare ? '' : 'border-t pt-4'}>
         <CitedMarkdown markdown={body} verdictFor={verdictFor} onOpen={onOpen} />
       </div>
@@ -77,6 +87,8 @@ export function AnswerPanel({ episode, onOpen, compact, bare }: { episode: Episo
           <Stat label="prompt tokens" value={fmt.format(stats.prompt_tokens)} />
           <Stat label="completion tokens" value={fmt.format(stats.completion_tokens)} />
           <Stat label="seconds" value={stats.seconds.toFixed(1)} />
+          {stats.model_seconds !== undefined && <Stat label="s in the model" value={stats.model_seconds.toFixed(1)} />}
+          {stats.tool_seconds !== undefined && <Stat label="s in tools" value={stats.tool_seconds.toFixed(1)} />}
         </dl>
       )}
     </section>
@@ -125,6 +137,15 @@ export function CitedMarkdown({
       </Markdown>
     </div>
   )
+}
+
+// The grader's gate reasons, in plain words.
+function explainFormat(reason: string): string {
+  if (/no \[path/.test(reason)) return 'No [path:Lstart-Lend] citation anywhere in the answer. Every claim needs one, in exactly that form.'
+  if (/tokens > cap/.test(reason)) return `Too long: ${reason.replace('answer ', '')}. The cap is part of the prompt, so this counts as not following the format.`
+  if (/no final answer/.test(reason)) return 'The agent never gave a final answer (it ran out of turns or budget).'
+  if (/stop_reason=/.test(reason)) return `The episode ended abnormally (${reason.replace('stop_reason=', '')}): a malformed tool call or a truncated generation.`
+  return reason
 }
 
 function Stat({ label, value }: { label: string; value: string }) {

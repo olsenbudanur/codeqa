@@ -10,12 +10,35 @@ lane A's environment and driver, and streams C9 events.
 | C1 manifests | `GET /repos` lists every `data/repos/*/manifest.json` that has an `index/<repo_id>/map.txt`; `__nodoc` variants are hidden. |
 | C3 `RepoEnv.from_question` + `run_episode` | `POST /ask` runs one episode with a cached `ModelClient` per profile. |
 | C7 `check_citations` | The `citations` event on `/ask` comes from the grader, not the driver's light check. |
-| C8 `profiles.yaml` | `GET /profiles` lists it with a display label and note; `POST /ask` takes a profile name. |
-| C9 `SSEEvent` | `/ask` streams `text/event-stream`, one `data: {"type": ..., ...payload}` frame per event, then `done`. |
+| C8 `profiles.yaml` | `GET /profiles` lists it with a display label and note, plus one read-only profile per sampler checkpoint in `data/logs/<run>/checkpoints.jsonl` (named `qwen4b-<run>-step<N>`, `source: checkpoints`, base model from the run's config; profiles.yaml wins on a name clash). `POST /ask` accepts either. |
+| C9 `SSEEvent` | `/ask` streams `text/event-stream`, one `data: {"type": ..., ...payload}` frame per event, then `done`. Extras beyond C9, all optional: every event carries `t` (seconds since the episode started); `stats` adds `model_seconds` (waiting for generations) and `tool_seconds` (running tools); `citations` adds `format_ok` / `format_reason` from the grader's `format_gate` + `citations_parse_gate`. |
 | C6 traces | Every `/ask` writes `data/traces/product/<task_id>__<profile>.json` (`CODEQA_TRACE_RUN` to change the run). |
 | gap_specs §8 | `POST /repos {url, sha?, fast?}` → `{job_id, repo_id}`; `GET /repos/{job_id}/status` → `{repo_id, stage, progress, seconds, message}`. Fast mode (default) marks the repo ready after snapshot + index + map, then fills in summaries and rebuilds the map in the background. |
 
 `GET /file?repo_id&path[&start&end]` returns snapshot text for the file viewer; paths outside the repo are refused.
+`GET /repos/{repo_id}/suggestions` returns three sample questions built from the index (locate / trace / explain).
+
+## Referee (`judge.py`)
+
+`POST /judge {repo_id, question, candidates: [{label, answer, citations, tool_calls?}]}` streams two phases: Opus
+(`CODEQA_JUDGE_MODEL`, default `claude-opus-5`) answers the question itself through `RepoEnv` + `run_episode` (events
+as `{"type": "ref", "event": …}`; trace saved under `data/traces/judge/`), then grades every candidate against its own
+cited answer and the candidate's citation-verification table, one `{"type": "verdict", index, score 0–10, correct,
+summary, issues, strengths}` per candidate. The candidate text is untrusted and truncated; the judge call has
+`thinking` off for stable JSON. Costs one Opus episode plus one judge call per candidate.
+
+## Workshop (D6, `workshop.py`, read-only)
+
+Parses files on request with a 5 s mtime-keyed cache; never launches, grades with a judge, or writes.
+
+| Endpoint | Reads |
+|---|---|
+| `GET /runs`, `GET /runs/{name}` | `data/logs/<run>/{config.json,metrics.jsonl,checkpoints.jsonl}`; `live` = metrics.jsonl changed in the last 3 min. Metric keys: `env/*`, `eval/*`, `optim/*`, `progress/*` (LOG 16:45). |
+| `GET /runs/{name}/iterations/{n}` | `iteration_NNNNNN/train_rollout_summaries.jsonl` → groups → trajectories (reward, tool sequence, stop, answer excerpt). |
+| `GET /checkpoints` | `data/models/manifest.json` joined with `profiles.yaml` and `data/evals/<profile>/<set>/results.json` (+ `sweqa_judge.json`); baselines `qwen4b-base` and `claude`. |
+| `GET /data/summary`, `GET /data/passrate`, `GET /data/tasks`, `GET /data/repos` | `data/tasks/{raw,train,eval}/*.jsonl`, `reports/passrate.jsonl` (difficulty = lane B's rule, window [0.1, 0.9]), `data/repos/*/manifest.json`. Task cards carry the pass-rate row, bucket, and example trace ids. |
+| `GET /traces`, `GET /traces/{id}`, `GET /traces/compare?a&b` | ids `trace/<run>/<stem>`, `eval/<profile>/<set>/<task_id>`, `rollout/<run>/<iter>/<group>/<traj>`. Detail = C9 events rebuilt from the C6 trace (or the rollout logs), stats, grade (per_task row / rollout metrics / `check_citations` only), citation table. |
+
 
 ## Run
 
@@ -24,6 +47,13 @@ uv run uvicorn apps.api.server:app --reload --port 8000
 cd apps/web && VITE_API_URL=http://localhost:8000 pnpm dev
 uv run pytest apps/api/tests            # throwaway repo + scripted client, no network
 ```
+
+## Password
+
+Every endpoint except `GET /health` and `POST /auth/login` requires `Authorization: Bearer <password>` (or `X-Password`).
+The password is `CODEQA_PASSWORD`, default `Action!`. This is a shared secret for the demo, not authentication: one
+password for everyone, compared in constant time, no sessions, no rate limiting. Put the API behind TLS if it leaves
+localhost.
 
 Environment: `CODEQA_WARM_CLIENTS=0` skips creating Tinker sampling clients at startup (they are created on first use
 either way); `CODEQA_ASK_TIMEOUT` (default 600 s) bounds one episode.

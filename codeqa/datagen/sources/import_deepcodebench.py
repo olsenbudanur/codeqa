@@ -40,14 +40,23 @@ def infer_type(question: str) -> str:
 #   assumes; they carry a facts rubric, so they are graded as `explain` (judge) instead of path/symbol F1.
 FIXES: dict[str, dict[str, Any]] = {
     "4344b2a4-42dd-441f-8c9c-2438db99176b": {"replace": ("≥ 2024.1.1", "≥ 2024.12.1")},
-    "d806e6bd-9e8a-4759-8b83-01fdfdfba005": {"task_type": "explain"},
-    "d9050518-df81-40ed-a90d-a8a3310f577f": {"task_type": "explain"},
+    "d806e6bd-9e8a-4759-8b83-01fdfdfba005": {"task_type": "explain", "question_suffix": " (in the Python package)"},
+    "d9050518-df81-40ed-a90d-a8a3310f577f": {"task_type": "explain", "question_suffix": " (in the CSI500 index collector)"},
+    # Sonnet validation of the fast set (23:55): three questions answered correctly about a different, plausible target in
+    # a large repo (DeepCodeBench assumes the source file as context); the qualifier restores that context
+    "6602505a-78ab-43d8-ba75-00346d015c8f": {"question_suffix": " (in the SAM model)"},
+    "c5c09820-4ff9-43e1-aabc-7c29436eb32d": {"question_suffix": " (for SparseCategoricalCrossentropy)"},
     "d58dd0e8-89c7-48b4-8da4-1fa6a3ae3aac": {"task_type": "explain", "paths_from_citations": True},
+    # repos with a C++ core and a Python package: the rubric is about the Python side, the question did not say so
+    # (Sonnet answered from src/common/ranking_utils.h and src/io/dataset.cpp and scored 0/4, 0/5)
+    "625f7f86-54ab-4445-89b2-807c16a8cee8": {"question_suffix": " (in the Python package)"},
 }
 
 
 def apply_fixes(row: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
     fix = FIXES.get(row["id"], {})
+    if "question_suffix" in fix and not row["question"].rstrip().endswith(fix["question_suffix"].strip()):
+        row = dict(row, question=row["question"].rstrip() + fix["question_suffix"])
     if "replace" in fix:
         a, b = fix["replace"]
         row = dict(row, answer=row["answer"].replace(a, b), facts=[f.replace(a, b) for f in row.get("facts", [])])

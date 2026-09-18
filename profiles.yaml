@@ -20,3 +20,9 @@ qwen4b-smoke1-step3:
   max_context: 32768
   max_generation_tokens: 2048
   thinking: true
+opus:
+  kind: anthropic
+  model: claude-opus-5
+  max_context: 65536
+  max_generation_tokens: 2048
+  thinking: true

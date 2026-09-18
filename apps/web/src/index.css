@@ -182,3 +182,72 @@
 @media (prefers-reduced-motion: reduce) {
   .chip-verified, .row-in, .dot-done { animation: none; }
 }
+
+/* Data-viz roles (dataviz skill reference palette; dark steps selected, not flipped). */
+:root {
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-4: #eda100;
+  --viz-grid: #e4e6ea;
+  --viz-band: rgba(42, 120, 214, 0.14);
+}
+.dark {
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --series-4: #c98500;
+  --viz-grid: #2a2f37;
+  --viz-band: rgba(57, 135, 229, 0.18);
+}
+:root { --series-5: #e87ba4; --series-6: #008300; --series-7: #4a3aa7; --series-8: #e34948; }
+.dark { --series-5: #d55181; --series-6: #008300; --series-7: #9085e9; --series-8: #e66767; }
+
+/* Working states: a scanning line and breathing brackets while the agent researches. */
+@keyframes scan { from { transform: translateX(-100%); } to { transform: translateX(400%); } }
+.scan-line { position: relative; height: 2px; overflow: hidden; background: color-mix(in oklab, var(--verified) 18%, transparent); border-radius: 1px; }
+.scan-line::after { content: ''; position: absolute; inset: 0; width: 25%; background: linear-gradient(90deg, transparent, var(--verified), transparent); animation: scan 1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
+@keyframes breathe-l { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(-3px); } }
+@keyframes breathe-r { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(3px); } }
+.bracket-spin { display: inline-flex; align-items: baseline; font-family: var(--font-mono); color: var(--verified); }
+.bracket-spin > .l { display: inline-block; animation: breathe-l 1.2s ease-in-out infinite; }
+.bracket-spin > .r { display: inline-block; animation: breathe-r 1.2s ease-in-out infinite; }
+@keyframes bounce-dot { 0%, 80%, 100% { transform: translateY(0); opacity: 0.5; } 40% { transform: translateY(-3px); opacity: 1; } }
+.dots { display: inline-flex; gap: 3px; align-items: center; }
+.dots > span { width: 4px; height: 4px; border-radius: 9999px; background: currentColor; animation: bounce-dot 1.1s ease-in-out infinite; }
+.dots > span:nth-child(2) { animation-delay: 0.15s; }
+.dots > span:nth-child(3) { animation-delay: 0.3s; }
+/* The composer's soft glow (light and dark). */
+.composer-glow { position: absolute; inset: -40px -60px; z-index: -1; background: radial-gradient(ellipse at 50% 60%, color-mix(in oklab, var(--verified) 14%, transparent), transparent 65%); filter: blur(24px); pointer-events: none; }
+.composer-frame { box-shadow: 0px 0px 0px 1px rgba(0,0,0,0.06), 0px 1px 1px -0.5px rgba(0,0,0,0.06), 0px 3px 3px -1.5px rgba(0,0,0,0.06), 0px 6px 6px -3px rgba(0,0,0,0.06), 0px 12px 12px -6px rgba(0,0,0,0.06), 0px 24px 24px -12px rgba(0,0,0,0.06); }
+.dark .composer-frame { box-shadow: 0 0 0 1px rgba(255,255,255,0.08), 0 12px 32px -12px rgba(0,0,0,0.6); }
+@media (prefers-reduced-motion: reduce) {
+  .scan-line::after, .bracket-spin > .l, .bracket-spin > .r, .dots > span { animation: none; }
+}
+
+/* Corner brackets: the citation motif as a frame. */
+.bracket { position: relative; }
+.bracket > .bracket-corner {
+  position: absolute;
+  z-index: 1;
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid var(--verified);
+  pointer-events: none;
+}
+.bracket > .bracket-corner.tl { top: -1px; left: -1px; border-right: 0; border-bottom: 0; }
+.bracket > .bracket-corner.tr { top: -1px; right: -1px; border-left: 0; border-bottom: 0; }
+.bracket > .bracket-corner.bl { bottom: -1px; left: -1px; border-right: 0; border-top: 0; }
+.bracket > .bracket-corner.br { bottom: -1px; right: -1px; border-left: 0; border-top: 0; }
+.bracket-in > .bracket-corner { animation: bracket-close 0.55s cubic-bezier(0.2, 0.8, 0.2, 1) both; animation-delay: 0.2s; }
+.bracket-in > .bracket-corner.tl { --dx: -10px; --dy: -10px; }
+.bracket-in > .bracket-corner.tr { --dx: 10px; --dy: -10px; }
+.bracket-in > .bracket-corner.bl { --dx: -10px; --dy: 10px; }
+.bracket-in > .bracket-corner.br { --dx: 10px; --dy: 10px; }
+@keyframes bracket-close {
+  from { opacity: 0; transform: translate(var(--dx), var(--dy)); }
+  to { opacity: 1; transform: none; }
+}
+
+
+.display { font-family: 'Bricolage Grotesque Variable', var(--font-sans); letter-spacing: -0.03em; font-weight: 560; }

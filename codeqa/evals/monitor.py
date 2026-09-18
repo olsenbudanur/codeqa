@@ -19,6 +19,7 @@ TRAIN_COLS = ("reward", "reward_shaped", "correctness", "format_ok", "citations_
               "group_reward_std", "unique_tool_sequences_per_group", "stop_budget", "stop_max_turns", "gate_format",
               "gate_citations", "gate_grounding", "judge_error", "no_answer_penalty")
 EVAL_COLS = ("reward", "correctness", "format_ok", "citations_grounded", "tool_calls", "stop_budget", "stop_max_turns")
+OPTIM_COLS = ("optim/lr", "optim/entropy", "optim/kl_sample_train_v1", "optim/kl_sample_train_v2", "optim/post_kl", "kl_ref/kl", "time/total")
 SHORT = {"reward": "rew", "reward_shaped": "shaped", "correctness": "corr", "format_ok": "fmt", "citations_grounded": "grnd",
          "tool_calls": "calls", "answer_tokens": "ans_tok", "group_reward_std": "std", "unique_tool_sequences_per_group": "uniq",
          "stop_budget": "s_bud", "stop_max_turns": "s_turn", "gate_format": "g_fmt", "gate_citations": "g_cit",
@@ -33,6 +34,25 @@ def _fmt(v: float | None) -> str:
     if v is None:
         return "   -"
     return f"{v:6.0f}" if abs(v) >= 100 else f"{v:6.2f}"
+
+
+def optim_table(rows: list[dict[str, Any]]) -> str:
+    """Optimizer-side signals the cookbook logs per step: lr, policy entropy, sampler-vs-trainer KL (how far the policy moved
+    from the weights that produced the batch), post-update KL (only with compute_post_kl), KL to the reference model (only
+    with a KL penalty), and wall time. Tinker's hosted forward/backward does not report gradient norms."""
+    present = [c for c in OPTIM_COLS if any(c in r for r in rows)]
+    if not present:
+        return "(no optim/* keys yet)"
+    lines = ["step " + " ".join(f"{c.split('/')[-1][:12]:>12s}" for c in present)]
+    for r in rows:
+        if "optim/lr" not in r:
+            continue
+        cells = []
+        for c in present:
+            v = r.get(c)
+            cells.append(f"{'-':>12s}" if v is None else (f"{v:12.2e}" if (abs(v) < 1e-2 and v != 0) else f"{v:12.3f}"))
+        lines.append(f"{int(r.get('step', -1)):4d} " + " ".join(cells))
+    return "\n".join(lines)
 
 
 def table(rows: list[dict[str, Any]], prefix: str, cols: tuple[str, ...]) -> str:
@@ -69,6 +89,12 @@ def checks(rows: list[dict[str, Any]], prefix: str = "env/all") -> list[str]:
         out.append(f"step {step}: format gate fails {g(last, 'gate_format'):.0%} (step 0: {g(first, 'gate_format'):.0%})")
     if g(last, "reward") < g(prev, "reward") - 0.1 and g(last, "tool_calls") > g(prev, "tool_calls") + 1:
         out.append(f"step {step}: reward fell {g(prev, 'reward'):.2f}->{g(last, 'reward'):.2f} while tool calls rose {g(prev, 'tool_calls'):.1f}->{g(last, 'tool_calls'):.1f}")
+    kl = last.get(f"optim/kl_sample_train_v1")
+    if kl is not None and abs(kl) > 0.05:
+        out.append(f"step {step}: sampler-vs-trainer KL {kl:.3f} (>0.05): the update moved the policy a lot; consider a lower lr")
+    ent, ent0 = last.get("optim/entropy"), first.get("optim/entropy")
+    if ent is not None and ent0 and ent < 0.4 * ent0:
+        out.append(f"step {step}: entropy {ent:.3f} is <40 % of step 0 ({ent0:.3f}): policy is sharpening fast (collapse risk)")
     if g(last, "judge_error") > 0.1:
         out.append(f"step {step}: judge_error={g(last, 'judge_error'):.0%}: those samples get the group mean (no signal)")
     if len(rs) >= 4:
@@ -85,12 +111,9 @@ def report(run: str, plots: bool = True) -> str:
     parts = [f"run {run}: {len(rows)} steps logged", "", "train (env/all)", table(rows, "env/all", TRAIN_COLS)]
     if any(_v(r, "eval/fast/env/all", "reward") is not None for r in rows):
         parts += ["", "held-out (eval/fast)", table(rows, "eval/fast/env/all", EVAL_COLS)]
+    parts += ["", "optimizer (per step)", optim_table(rows)]
     warns = checks(rows)
     parts += ["", "checks: " + ("OK" if not warns else "")] + [f"  ! {w}" for w in warns]
-    last = rows[-1]
-    lr = last.get("optim/lr")
-    if lr is not None:
-        parts.append(f"lr {lr:.1e}; step time {last.get('time/total', float('nan')):.0f}s")
     if plots:
         for p in plot_runs([run], paths.LOGS / run / "plots"):
             parts.append(f"wrote {p}")

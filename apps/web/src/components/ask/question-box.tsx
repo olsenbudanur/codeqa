@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
-import { ArrowUp, Mic, MicOff, Square } from 'lucide-react'
+import { ArrowUp, BookOpen, Crosshair, Mic, MicOff, Route, Square } from 'lucide-react'
 import { useDictation } from '@/hooks/use-dictation'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -14,6 +14,7 @@ export function QuestionBox({
   initial,
   showSamples,
   samples = [],
+  bare,
 }: {
   onAsk: (q: string) => void
   onStop: () => void
@@ -23,6 +24,7 @@ export function QuestionBox({
   initial?: string
   showSamples?: boolean
   samples?: string[]
+  bare?: boolean
 }) {
   const [text, setText] = useState(initial ?? '')
   const [interim, setInterim] = useState('')
@@ -60,9 +62,9 @@ export function QuestionBox({
     <div>
       <div
         className={cn(
-          'relative rounded-lg border bg-background transition-[box-shadow,border-color]',
-          'focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/25',
-          dictation.listening && 'border-verified ring-2 ring-verified/25',
+          'relative bg-background transition-[box-shadow,border-color]',
+          bare ? 'rounded-none border-0' : 'rounded-lg border focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/25',
+          dictation.listening && (bare ? 'bg-verified-soft/40' : 'border-verified ring-2 ring-verified/25'),
         )}
       >
         <label htmlFor="question" className="sr-only">
@@ -77,20 +79,20 @@ export function QuestionBox({
             setText(e.target.value)
           }}
           onKeyDown={onKey}
-          rows={1}
+          rows={bare ? 2 : 1}
           placeholder={disabled ? (disabledReason ?? 'Pick a repository first') : 'Ask about this repository'}
           disabled={disabled}
-          className="w-full resize-none bg-transparent px-3.5 pt-3 pb-12 text-[15px] leading-6 outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed"
+          className={cn('w-full resize-none bg-transparent px-4 pt-3.5 pb-14 leading-6 outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed', bare ? 'min-h-[112px] text-[16px]' : 'text-[15px]')}
         />
-        <div className="absolute inset-x-2 bottom-2 flex items-center gap-1">
+        <div className="absolute inset-x-2.5 bottom-2.5 flex items-center gap-1.5">
           {dictation.supported && (
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
                   type="button"
                   size="icon"
-                  variant="ghost"
-                  className={cn('size-8', dictation.listening && 'text-verified')}
+                  variant="outline"
+                  className={cn('size-9 rounded-full', dictation.listening && 'border-verified text-verified')}
                   aria-pressed={dictation.listening}
                   aria-label={dictation.listening ? 'Stop dictating' : 'Dictate the question'}
                   disabled={disabled || running}
@@ -104,34 +106,44 @@ export function QuestionBox({
           )}
           {dictation.listening && <span className="text-xs text-verified">Listening</span>}
           {dictation.error && <span className="text-xs text-destructive">{dictation.error}</span>}
-          <span className="ml-auto text-xs text-muted-foreground max-sm:hidden">Enter to ask</span>
+          <kbd className="ml-auto rounded-md border px-1.5 py-0.5 font-mono text-[10.5px] text-muted-foreground max-sm:hidden">Enter</kbd>
           {running ? (
-            <Button type="button" size="icon" variant="outline" className="size-8" onClick={onStop} aria-label="Stop">
-              <Square className="size-3.5 fill-current" />
+            <Button type="button" variant="outline" className="h-9 rounded-full px-3.5" onClick={onStop}>
+              <Square className="size-3 fill-current" />
+              Stop
             </Button>
           ) : (
-            <Button type="button" size="icon" className="size-8" onClick={submit} disabled={disabled || !text.trim()} aria-label="Ask">
-              <ArrowUp />
+            <Button type="button" className="h-9 rounded-full pr-3 pl-4 text-[14px]" onClick={submit} disabled={disabled || !text.trim()}>
+              Ask
+              <ArrowUp className="size-4" />
             </Button>
           )}
         </div>
       </div>
       {showSamples !== false && samples.length > 0 && !text && !running && !disabled && (
-        <ul className="mt-2.5 flex flex-wrap gap-1.5" aria-label="Sample questions">
-          {samples.map((s) => (
-            <li key={s}>
-              <button
-                type="button"
-                onClick={() => {
-                  setText(s)
-                  ref.current?.focus()
-                }}
-                className="rounded-full border px-2.5 py-1 text-left text-xs text-muted-foreground transition-colors hover:border-foreground/40 hover:text-foreground"
-              >
-                {s}
-              </button>
-            </li>
-          ))}
+        <ul className={cn('flex flex-wrap gap-1.5', bare ? 'border-t px-3.5 py-3' : 'mt-2.5')} aria-label="Sample questions">
+          {bare && <li className="mr-1 self-center text-xs text-muted-foreground">Try</li>}
+          {samples.map((s, i) => {
+            const Icon = [Crosshair, Route, BookOpen][i % 3]
+            return (
+              <li key={s}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    // A suggestion is a question, not a draft: ask it straight away.
+                    if (dictation.listening) dictation.stop()
+                    setText('')
+                    setInterim('')
+                    onAsk(s)
+                  }}
+                  className="group inline-flex max-w-full items-center gap-1.5 rounded-full border bg-background px-3 py-1.5 text-left text-[12.5px] text-muted-foreground transition-[color,border-color,transform] hover:-translate-y-px hover:border-verified/50 hover:text-foreground"
+                >
+                  <Icon className="size-3.5 shrink-0 text-verified" aria-hidden />
+                  <span className="truncate">{s}</span>
+                </button>
+              </li>
+            )
+          })}
         </ul>
       )}
     </div>

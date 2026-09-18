@@ -1,5 +1,6 @@
 import type { AskRequest, Profile, RepoJobStatus, RepoSummary, SSEEvent } from './contracts'
 import { readSSE } from './sse'
+import { authHeaders, handleUnauthorized } from './auth'
 import mockEvents from '../../mock/events.json'
 import mockRepos from '../../mock/repos.json'
 import mockProfiles from '../../mock/profiles.json'
@@ -29,9 +30,10 @@ export class HttpApi implements Api {
   private async json<T>(path: string, init?: RequestInit): Promise<T> {
     const res = await fetch(this.base + path, {
       ...init,
-      headers: { 'content-type': 'application/json', ...(init?.headers ?? {}) },
+      headers: { 'content-type': 'application/json', ...authHeaders(), ...(init?.headers ?? {}) },
       signal: init?.signal ?? AbortSignal.timeout(60_000),
     })
+    handleUnauthorized(res)
     if (!res.ok) throw new Error(`${res.status} ${res.statusText}: ${await res.text()}`)
     return (await res.json()) as T
   }
@@ -55,15 +57,17 @@ export class HttpApi implements Api {
   async *ask(req: AskRequest, signal?: AbortSignal) {
     const res = await fetch(this.base + '/ask', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', accept: 'text/event-stream' },
+      headers: { 'content-type': 'application/json', accept: 'text/event-stream', ...authHeaders() },
       body: JSON.stringify(req),
       signal,
     })
+    handleUnauthorized(res)
     yield* readSSE<SSEEvent>(res, signal)
   }
   async getFile(repoId: string, path: string) {
     const q = new URLSearchParams({ repo_id: repoId, path })
-    const res = await fetch(`${this.base}/file?${q}`, { signal: AbortSignal.timeout(30_000) })
+    const res = await fetch(`${this.base}/file?${q}`, { headers: authHeaders(), signal: AbortSignal.timeout(30_000) })
+    handleUnauthorized(res)
     if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
     return res.text()
   }
@@ -165,8 +169,27 @@ export class MockApi implements Api {
   }
 
   async *ask(_req: AskRequest, signal?: AbortSignal): AsyncIterable<SSEEvent> {
-    for (const ev of mockEvents.events as SSEEvent[]) {
-      await sleep(PACE[ev.type], signal)
+    const t0 = Date.now()
+    let model = 0
+    let tools = 0
+    let mark: number | null = 0
+    let openCall: number | null = null
+    for (const raw of mockEvents.events as SSEEvent[]) {
+      await sleep(PACE[raw.type], signal)
+      const t = (Date.now() - t0) / 1000
+      if ((raw.type === 'thinking' || raw.type === 'tool_call' || raw.type === 'answer') && mark !== null) {
+        model += t - mark
+        mark = null
+      }
+      if (raw.type === 'tool_call') openCall = t
+      if (raw.type === 'tool_result') {
+        if (openCall !== null) tools += t - openCall
+        openCall = null
+        mark = t
+      }
+      let ev: SSEEvent = { ...raw, t: Number(t.toFixed(3)) } as SSEEvent
+      if (ev.type === 'stats') ev = { ...ev, model_seconds: Number(model.toFixed(2)), tool_seconds: Number(tools.toFixed(2)) }
+      if (ev.type === 'citations') ev = { ...ev, format_ok: true, format_reason: '' }
       yield ev
     }
   }

@@ -17,22 +17,30 @@ import time
 from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator
 
-from fastapi import FastAPI, HTTPException, Query
+import hmac
+
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import PlainTextResponse, StreamingResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from apps.api.repos import IndexJobs, list_repos, read_file, repo_summary, suggest_questions
 from apps.api.workshop import router as workshop_router
+from apps.api.judge import router as judge_router
 from codeqa.agent.driver import run_episode, save_trace
 from codeqa.agent.env import RepoEnv
 from codeqa.clients.base import ModelClient, make_client
 from codeqa.grader.citations import check_citations
+from codeqa.grader.gates import citations_parse_gate, format_gate
+from apps.api.workshop import read_json, read_jsonl
 from codeqa.shared import paths
 from codeqa.shared.contracts import EndpointProfile, SSEEvent, TaskType
-from codeqa.shared.profiles import get_profile, load_profiles
+from codeqa.shared.profiles import load_profiles
 
 TRACE_RUN = os.environ.get("CODEQA_TRACE_RUN", "product")
+# Shared secret for the demo. One password for everyone; not real auth. Override with CODEQA_PASSWORD.
+PASSWORD = os.environ.get("CODEQA_PASSWORD", "Action!")
+PUBLIC_PATHS = {"/health", "/auth/login"}
 ASK_TIMEOUT = float(os.environ.get("CODEQA_ASK_TIMEOUT", "600"))
 
 
@@ -49,13 +57,54 @@ _clients: dict[str, ModelClient] = {}
 _client_locks: dict[str, asyncio.Lock] = {}
 
 
+_CKPT_RE = re.compile(r"^qwen4b-(?P<run>[A-Za-z0-9_.\-]+)-step(?P<step>\d+|final)$")
+
+
+def checkpoint_profiles() -> dict[str, EndpointProfile]:
+    """One profile per sampler checkpoint under data/logs/<run>/checkpoints.jsonl, named qwen4b-<run>-step<N> (lane A's
+    convention), unless profiles.yaml already names that sampler path. Read-only: nothing is written to profiles.yaml."""
+    yaml_profiles = load_profiles()
+    known = {p.model for p in yaml_profiles.values()}
+    out: dict[str, EndpointProfile] = {}
+    if not paths.LOGS.exists():
+        return out
+    for run in sorted(paths.LOGS.iterdir()):
+        rows = read_jsonl(run / "checkpoints.jsonl")
+        if not rows:
+            continue
+        cfg = read_json(run / "config.json", {}) or {}
+        base = cfg.get("model_name") or "Qwen/Qwen3.5-4B"
+        for r in rows:
+            sp = r.get("sampler_path")
+            if not sp or sp in known:
+                continue
+            step = str(r.get("batch", r.get("name", "?")))
+            name = f"qwen4b-{run.name}-step{step}"
+            if name in out or name in yaml_profiles:  # `000003` and `final` rows share a batch; profiles.yaml wins
+                continue
+            out[name] = EndpointProfile(name=name, kind="tinker", model=sp, base_model=base, renderer=cfg.get("renderer_name") or "qwen3_5",
+                                        max_context=32768, max_generation_tokens=int(cfg.get("max_tokens") or 2048))
+    return out
+
+
+def all_profiles() -> dict[str, EndpointProfile]:
+    return {**checkpoint_profiles(), **load_profiles()}
+
+
+def resolve_profile(name: str) -> EndpointProfile:
+    p = all_profiles().get(name)
+    if p is None:
+        raise KeyError(name)
+    return p
+
+
 async def client_for(name: str) -> ModelClient:
     if name in _clients:
         return _clients[name]
     lock = _client_locks.setdefault(name, asyncio.Lock())
     async with lock:
         if name not in _clients:
-            profile = get_profile(name)
+            profile = resolve_profile(name)
             t0 = time.time()
             _clients[name] = await asyncio.to_thread(make_client, profile)
             log(f"[api] client {name} ({profile.kind}) ready in {time.time()-t0:.1f}s")
@@ -83,7 +132,32 @@ async def lifespan(_: FastAPI):
 app = FastAPI(title="codeqa api", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 jobs = IndexJobs(log=log)
+
+
+def _password_ok(request: Request) -> bool:
+    auth = request.headers.get("authorization", "")
+    supplied = auth[7:] if auth.lower().startswith("bearer ") else request.headers.get("x-password", "")
+    return hmac.compare_digest(supplied, PASSWORD)
+
+
+@app.middleware("http")
+async def require_password(request: Request, call_next):
+    if request.method == "OPTIONS" or request.url.path in PUBLIC_PATHS or _password_ok(request):
+        return await call_next(request)
+    return JSONResponse({"detail": "password required"}, status_code=401, headers={"www-authenticate": "Bearer"})
+
+
+class Login(BaseModel):
+    password: str
+
+
+@app.post("/auth/login")
+def login(body: Login) -> dict[str, bool]:
+    if not hmac.compare_digest(body.password, PASSWORD):
+        raise HTTPException(401, "wrong password")
+    return {"ok": True}
 app.include_router(workshop_router, tags=["workshop"])
+app.include_router(judge_router, tags=["judge"])
 
 
 # ---------------------------------------------------------------------------
@@ -149,7 +223,7 @@ def get_file(repo_id: str, path: str, start: int | None = Query(None, ge=1), end
 _STEP_RE = re.compile(r"^qwen4b-(?P<run>.+)-step(?P<step>\d+|final)$")
 
 
-def profile_row(p: EndpointProfile) -> dict[str, Any]:
+def profile_row(p: EndpointProfile, from_checkpoints: bool = False) -> dict[str, Any]:
     label, note = p.model, ""
     if p.kind == "anthropic":
         label = {"claude-sonnet-5": "Claude Sonnet 5", "claude-haiku-4-5-20251001": "Claude Haiku 4.5"}.get(p.model, p.model)
@@ -162,12 +236,16 @@ def profile_row(p: EndpointProfile) -> dict[str, Any]:
             label, note = "Qwen3.5-4B, untrained", "step 0"
     elif p.kind == "openai":
         label, note = "Qwen3.5-4B, served", "vLLM on Modal"
-    return {"name": p.name, "kind": p.kind, "model": p.model, "label": label, "note": note}
+    if from_checkpoints:
+        note = f"{note} (checkpoint)" if note else "checkpoint"
+    return {"name": p.name, "kind": p.kind, "model": p.model, "label": label, "note": note, "source": "checkpoints" if from_checkpoints else "profiles.yaml"}
 
 
 @app.get("/profiles")
 def get_profiles() -> list[dict[str, Any]]:
-    return [profile_row(p) for p in load_profiles().values()]
+    rows = [profile_row(p) for p in load_profiles().values()]
+    rows += [profile_row(p, from_checkpoints=True) for p in checkpoint_profiles().values()]
+    return rows
 
 
 # ---------------------------------------------------------------------------
@@ -190,23 +268,46 @@ async def episode_events(req: Ask) -> AsyncIterator[SSEEvent]:
     """Runs one episode and yields C9 events as they happen. The driver's own `citations` and `done` are replaced by
     the grader's citation check followed by `done`, so the UI's badges are the authoritative ones."""
     queue: asyncio.Queue[SSEEvent | None] = asyncio.Queue()
+    clock = {"t0": time.time()}  # reset when the episode starts, so `t` matches the driver's stats.seconds
+    timing = {"model": 0.0, "tools": 0.0, "mark": 0.0, "open_call": None}  # seconds; `mark` = when the model last got control
 
     async def on_event(ev: SSEEvent) -> None:
         if ev.type in ("citations", "done"):
             return
-        await queue.put(ev)
+        now = time.time() - clock["t0"]
+        # Model time runs from the last tool result (or the start) to the first event the model produces next.
+        if ev.type in ("thinking", "tool_call", "answer") and timing["mark"] is not None:
+            timing["model"] += now - timing["mark"]
+            timing["mark"] = None
+        if ev.type == "tool_call":
+            timing["open_call"] = now
+        if ev.type == "tool_result":
+            if timing["open_call"] is not None:
+                timing["tools"] += now - timing["open_call"]
+                timing["open_call"] = None
+            timing["mark"] = now
+        if ev.type == "stats":
+            ev = SSEEvent(type="stats", payload={**ev.payload, "model_seconds": round(timing["model"], 2), "tool_seconds": round(timing["tools"], 2)})
+        await queue.put(SSEEvent(type=ev.type, payload={**ev.payload, "t": round(now, 3)}))
 
     async def run() -> None:
         try:
-            profile = get_profile(req.profile)
+            profile = resolve_profile(req.profile)
             env = RepoEnv.from_question(req.repo_id, req.question, profile, task_type=req.task_type)
             client = await client_for(req.profile)
+            clock["t0"] = time.time()
+            timing["mark"] = 0.0
             trace = await asyncio.wait_for(run_episode(env, client, on_event, temperature=req.temperature), timeout=ASK_TIMEOUT)
+            # Format verdict, the same gates the grader applies first.
+            fmt_ok, fmt_why = format_gate(trace.answer, trace, env.budget)
+            cit_ok, cit_why = citations_parse_gate(trace.answer) if trace.answer else (False, "no final answer")
             if trace.answer:
                 report = await asyncio.to_thread(check_citations, trace.answer, trace.stats.files_read, req.repo_id)
                 items = [{"path": c.path, "start": c.start, "end": c.end, "exists": c.exists, "verified": c.exists and c.grounded}
                          for c in report.citations]
-                await queue.put(SSEEvent(type="citations", payload={"items": items}))
+                await queue.put(SSEEvent(type="citations", payload={"items": items, "format_ok": fmt_ok and cit_ok,
+                                                                    "format_reason": (fmt_why or cit_why) if not (fmt_ok and cit_ok) else "",
+                                                                    "t": round(time.time() - clock["t0"], 3)}))
             elif trace.stats.stop_reason != "error":
                 await queue.put(SSEEvent(type="error", payload={"message": f"The agent stopped without answering ({trace.stats.stop_reason})."}))
             out = save_trace(trace, run=TRACE_RUN)
@@ -240,7 +341,7 @@ async def episode_events(req: Ask) -> AsyncIterator[SSEEvent]:
 async def post_ask(req: Ask) -> StreamingResponse:
     if repo_summary(req.repo_id) is None:
         raise HTTPException(404, f"unknown or unindexed repo {req.repo_id}")
-    if req.profile not in load_profiles():
+    if req.profile not in all_profiles():
         raise HTTPException(404, f"unknown profile {req.profile}")
 
     async def body() -> AsyncIterator[str]:

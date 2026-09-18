@@ -15,6 +15,7 @@ from codeqa.agent.curation import DEFAULT_CAPS, Caps
 from codeqa.agent.indexing.repomap import load_map
 from codeqa.agent.prompts import system_prompt, user_prompt
 from codeqa.agent.tools import RepoTools
+from codeqa.agent.variants import AgentVariant, resolve
 from codeqa.shared.contracts import (Budget, EndpointProfile, Message, Span, StopReason, Task, TaskType, Trace,
                                      TraceStats)
 
@@ -22,34 +23,36 @@ RewardFn = Callable[[list[dict[str, Any]], "RepoEnv"], Awaitable[tuple[float, di
 
 
 class RepoEnv:
-    def __init__(self, task: Task, profile: EndpointProfile, caps: Caps = DEFAULT_CAPS):
+    def __init__(self, task: Task, profile: EndpointProfile, caps: Caps = DEFAULT_CAPS,
+                 variant: str | AgentVariant | None = None):
         self.task = task
         self.profile = profile
         self.repo_id = task.repo_id
         self.budget: Budget = task.effective_budget()
+        self.variant: AgentVariant = resolve(variant)   # None -> CODEQA_AGENT_VARIANT or "default"
         self.tools_obj = RepoTools(task.repo_id, max_tool_calls=self.budget.max_tool_calls, caps=caps)
-        self.repo_map = load_map(task.repo_id)
-        if not self.repo_map:
+        self.repo_map = load_map(task.repo_id) if self.variant.include_map else ""
+        if self.variant.include_map and not self.repo_map:
             raise FileNotFoundError(f"no map.txt for {task.repo_id}; run `python -m codeqa.agent.indexing.cli map {task.repo_id}`")
 
     @classmethod
     def from_question(cls, repo_id: str, question: str, profile: EndpointProfile, task_type: TaskType = "explain",
-                      budget: Budget | None = None) -> "RepoEnv":
+                      budget: Budget | None = None, variant: str | AgentVariant | None = None) -> "RepoEnv":
         """Ad-hoc env for the product: a question with no gold."""
         tid = "adhoc-" + hashlib.sha1(f"{repo_id}\n{question}".encode()).hexdigest()[:10]
         return cls(Task(task_id=tid, repo_id=repo_id, split="eval", question=question, task_type=task_type,
-                        source="teacher", budget=budget), profile)
+                        source="teacher", budget=budget), profile, variant=variant)
 
     # ------------------------------------------------------------------ what every client needs
     def tools(self) -> list:
-        return self.tools_obj.tools()
+        return self.tools_obj.tools(self.variant.tools)
 
     def specs(self) -> list[dict[str, Any]]:
-        return self.tools_obj.specs()
+        return self.tools_obj.specs(self.variant.tools)
 
     def initial_messages(self) -> list[Message]:
         return [
-            Message(role="system", content=system_prompt(self.budget.max_tool_calls, self.budget.max_answer_tokens)),
+            Message(role="system", content=system_prompt(self.budget.max_tool_calls, self.budget.max_answer_tokens, self.variant.rules)),
             Message(role="user", content=user_prompt(self.repo_id, self.repo_map, self.task.question)),
         ]
 

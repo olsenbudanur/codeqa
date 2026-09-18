@@ -33,7 +33,7 @@ from codeqa.shared.profiles import get_profile
 logger = logging.getLogger(__name__)
 EPISODE_TIMEOUT = 240.0
 
-SUMMARY_KEYS = ("reward", "correctness", "format_ok", "citations_parse", "citations_exist", "citations_grounded", "identifier_grounded",
+SUMMARY_KEYS = ("reward", "correct", "stalled", "correctness", "format_ok", "citations_parse", "citations_exist", "citations_grounded", "identifier_grounded",
                 "efficiency", "judge_error", "tool_calls", "tool_errors", "prompt_tokens", "completion_tokens", "answer_tokens", "turns", "seconds")
 
 

@@ -56,7 +56,7 @@ def cmd_filter(args: argparse.Namespace) -> int:
 
 def cmd_split(args: argparse.Namespace) -> int:
     from codeqa.datagen import split
-    rep = split.build(lo=args.lo, hi=args.hi, per_repo_cap=args.per_repo_cap, keep_unmeasured=args.keep_unmeasured)
+    rep = split.build(lo=args.lo, hi=args.hi, per_repo_cap=args.per_repo_cap, keep_unmeasured=args.keep_unmeasured, refresh_fast=args.refresh_fast)
     print(json.dumps(rep, indent=1), flush=True)
     return 0
 
@@ -103,6 +103,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--hi", type=float, default=0.9)
     p.add_argument("--per-repo-cap", type=int, default=120)
     p.add_argument("--keep-unmeasured", action="store_true")
+    p.add_argument("--refresh-fast", action="store_true", help="resample eval/fast.jsonl instead of keeping its current ids")
     p.set_defaults(fn=cmd_split)
     args = ap.parse_args(argv)
     return args.fn(args)
