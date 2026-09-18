@@ -15,7 +15,7 @@ Put the product on one small EC2 box behind HTTPS with a password, from a privat
 Disk: `data/repos` 0.85 GB + `data/index` 0.15 GB (65 snapshots incl. nodoc). 30 GB root volume is plenty.
 
 ## Checklist
-- [ ] **E1 Repo hygiene and push.** `git init` at the repo root. Add to `.gitignore`: `apps/web/dist/`, `.pytest_cache/`, `*.log`, `.DS_Store` (`.env`, `.venv/`, `data/`, `node_modules/` are already ignored; keep `!data/.gitkeep`). Secret scan before the first commit: `gitleaks detect --no-git -v` if installed, else the grep in `scripts/deploy/secret_scan.sh` (patterns: `sk-ant-`, `tinker_`, `ghp_`, `hf_`, `wrkspc_`, `AKIA`). `profiles.yaml` is fine to commit (model names and `tinker://` paths, no keys). Create the private repo: `gh repo create <owner>/codeqa --private --source . --push`. Commit message per the session's attribution rule.
+- [x] **E1 Repo hygiene and push.** `git init` at the repo root. Add to `.gitignore`: `apps/web/dist/`, `.pytest_cache/`, `*.log`, `.DS_Store` (`.env`, `.venv/`, `data/`, `node_modules/` are already ignored; keep `!data/.gitkeep`). Secret scan before the first commit: `gitleaks detect --no-git -v` if installed, else the grep in `scripts/deploy/secret_scan.sh` (patterns: `sk-ant-`, `tinker_`, `ghp_`, `hf_`, `wrkspc_`, `AKIA`). `profiles.yaml` is fine to commit (model names and `tinker://` paths, no keys). Create the private repo: `gh repo create <owner>/codeqa --private --source . --push`. Commit message per the session's attribution rule.
   Done when: `git ls-files | grep -E "^data/|\.env$|node_modules|dist/"` prints only `data/.gitkeep`; the repo is private on GitHub; a fresh clone + `uv sync --group dev` + `uv run pytest -q -m "not live"` passes on the laptop.
 - [ ] **E2 Provision.** Ubuntu 24.04 LTS, `t3.large` (2 vCPU / 8 GB; `t3.medium` works, indexing a new repo is the only CPU-heavy path), 30 GB gp3, an Elastic IP. Security group: 22 from the lead's IP only, 80 and 443 from anywhere. Key pair in the lead's `~/.ssh`. Write the public IP into `scripts/deploy/HOST`.
   Done when: `ssh ubuntu@<ip> 'uname -a'` works from the laptop.
@@ -56,7 +56,7 @@ ssh ubuntu@<ip> /opt/codeqa/scripts/deploy/update.sh
 
 ## Progress log (append-only)
 Format: `- [YYYY-MM-DD HH:MM] E<n> done — one line with URLs/paths`
-- (none yet)
+- [2026-09-18 23:55] E1 done — https://github.com/olsenbudanur/codeqa (private, `main`, 251 files / 2.4 MB, commit 2037b35). `.gitignore` gained `.agents/`, `.claude/`, `skills-lock.json` and the `data/*` fix; `scripts/deploy/secret_scan.sh` clean (patterns + live key values). Fresh clone + `uv sync --group dev` + offline pytest: 106 passed, 13 skipped (flask snapshot lives in `data/`, not in git).
 
 ## Open questions for the lead
 - Domain: do you own one to point at the Elastic IP, or use `<ip>.nip.io`?
