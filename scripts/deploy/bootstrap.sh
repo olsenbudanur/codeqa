@@ -21,7 +21,9 @@ uv python install 3.12 >/dev/null 2>&1 || true
 if ! command -v node >/dev/null || [ "$(node -v | cut -d. -f1 | tr -d v)" -lt 20 ]; then
   log "node 22"; curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash - >/dev/null; sudo apt-get install -y -qq nodejs >/dev/null
 fi
-if ! command -v pnpm >/dev/null; then log "pnpm"; sudo npm install -g pnpm@latest >/dev/null; fi
+# pnpm major must match the laptop's lockfile format (pnpm 8 writes lockfileVersion 6; pnpm 10+ cannot read it).
+PNPM_MAJOR="${CODEQA_PNPM_MAJOR:-8}"
+if ! command -v pnpm >/dev/null || [ "$(pnpm -v | cut -d. -f1)" != "$PNPM_MAJOR" ]; then log "pnpm $PNPM_MAJOR"; sudo npm install -g "pnpm@$PNPM_MAJOR" >/dev/null 2>&1; fi
 
 if ! command -v caddy >/dev/null; then
   log "caddy"
