@@ -956,3 +956,8 @@ Entry format:
 - `modal volume put ... /STOP` is invisible to a container that has not called `volume.reload()` (reload is off since it crashed the final eval), so the queue started `nogates` (arm 4/4) at 14:44 despite the file. Not hard-stopped (orphaned Tinker requests, and stops need a go); it runs ≈ 10 steps (≈ 20 min, ≈ $15–20), then the launcher starts the follow-up queue with bash_v3 first.
 - Fix: `codeqa/shared/control.py` keeps the stop signal in a Modal Dict (`codeqa-control`) that the queue and the arm watchdog read live; from the laptop `uv run python -m codeqa.shared.control stop|clear|show`. The local `data/STOP` file still works for laptop runs.
 - Affects: C, D
+
+## 2026-09-19 23:00 · repo · lane E — public
+- What: https://github.com/olsenbudanur/codeqa is public. Before flipping: pattern scan + live-key-value scan over every blob in history (622 blobs, 0 hits); one research draft carried the lead's email and Tinker org id, scrubbed from all history with `git filter-repo --replace-text`, force-pushed, box reset to the new `main`. All commit SHAs changed (23 commits); old SHAs may still resolve on GitHub until its GC runs.
+- Gotcha: `git filter-repo` removes `origin` on purpose; re-add it before pushing. The box's `update.sh` does `--ff-only`, so after any rewrite run `git fetch && git reset --hard origin/main` on the box first.
+- Affects: everyone (re-clone or `git fetch && git reset --hard origin/main` on any existing checkout)
