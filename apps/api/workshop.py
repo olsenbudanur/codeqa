@@ -172,6 +172,8 @@ def run_row(name: str) -> dict[str, Any] | None:
     last = _mtime(met_p)
     iterations = sorted(int(p.name.split("_")[1]) for p in d.glob("iteration_*") if p.is_dir())
     meta = run_titles().get(name, {})
+    if not isinstance(meta, dict):   # runs.json may hold a plain string note for a run
+        meta = {"hypothesis": str(meta)}
     planned = meta.get("steps") if isinstance(meta.get("steps"), int) else None
     return {
         "name": name,
