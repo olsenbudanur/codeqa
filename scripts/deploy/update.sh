@@ -8,7 +8,7 @@ HOST=$(grep -m1 -oE '^[a-z0-9.-]+\.[a-z]+' /etc/caddy/Caddyfile | head -1)
 cd $APP
 git pull --ff-only
 uv sync -q
-(cd apps/web && pnpm install --frozen-lockfile --silent && VITE_API_URL="https://$HOST/api" pnpm build --silent)
+(cd apps/web && pnpm install --frozen-lockfile --silent && VITE_API_URL="https://$HOST/api" pnpm build)
 sudo install -m 644 scripts/deploy/codeqa-api.service /etc/systemd/system/codeqa-api.service
 sed "s/__HOST__/$HOST/g" scripts/deploy/Caddyfile | sudo tee /etc/caddy/Caddyfile >/dev/null
 sudo systemctl daemon-reload

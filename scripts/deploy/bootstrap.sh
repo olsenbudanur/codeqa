@@ -46,7 +46,7 @@ else
 fi
 
 log "uv sync"; (cd $APP && uv sync -q)
-log "web build"; (cd $APP/apps/web && pnpm install --frozen-lockfile --silent && VITE_API_URL="https://$CODEQA_HOST/api" pnpm build --silent)
+log "web build"; (cd $APP/apps/web && pnpm install --frozen-lockfile --silent && VITE_API_URL="https://$CODEQA_HOST/api" pnpm build)
 
 log "services"
 sudo install -m 644 $APP/scripts/deploy/codeqa-api.service /etc/systemd/system/codeqa-api.service
