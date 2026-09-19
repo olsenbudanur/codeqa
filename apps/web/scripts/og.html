@@ -1,0 +1,31 @@
+<!doctype html><html><head><meta charset="utf-8">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&display=swap');
+  html,body{margin:0}
+  .card{width:1200px;height:630px;position:relative;overflow:hidden;background:#0a0c10;color:#f3f5f8;font-family:'IBM Plex Sans',system-ui,sans-serif}
+  .grid{position:absolute;inset:0;background-image:linear-gradient(to right,rgba(255,255,255,.035) 1px,transparent 1px),linear-gradient(to bottom,rgba(255,255,255,.035) 1px,transparent 1px);background-size:64px 64px;-webkit-mask-image:radial-gradient(ellipse 70% 60% at 30% 40%,black 30%,transparent 100%)}
+  .glow{position:absolute;left:-120px;top:120px;width:900px;height:520px;background:radial-gradient(ellipse at center,rgba(63,211,154,.22),rgba(63,211,154,.06) 45%,transparent 70%);filter:blur(40px)}
+  .inner{position:absolute;inset:0;padding:72px 84px;display:flex;flex-direction:column;justify-content:space-between}
+  .mark{font-family:'IBM Plex Mono',monospace;font-size:40px;color:#3fd39a;display:flex;align-items:center;gap:14px}
+  .mark b{color:#f3f5f8;font-family:'IBM Plex Sans';font-weight:500;font-size:34px;letter-spacing:-.02em}
+  h1{font-family:'Bricolage Grotesque';font-weight:560;font-size:82px;line-height:1.02;letter-spacing:-.035em;margin:0;max-width:980px}
+  .sub{font-size:28px;color:#8b94a3;margin-top:22px;max-width:900px;line-height:1.35}
+  .chip{display:inline-flex;align-items:center;gap:10px;border:2px solid rgba(63,211,154,.45);color:#3fd39a;border-radius:12px;padding:8px 16px;font-family:'IBM Plex Mono';font-size:26px;margin-left:16px;vertical-align:middle}
+  .foot{display:flex;justify-content:space-between;font-family:'IBM Plex Mono';font-size:22px;color:#8b94a3}
+  .corner{position:absolute;width:26px;height:26px;border:3px solid #3fd39a}
+  .tl{top:40px;left:40px;border-right:0;border-bottom:0}.tr{top:40px;right:40px;border-left:0;border-bottom:0}
+  .bl{bottom:40px;left:40px;border-right:0;border-top:0}.br{bottom:40px;right:40px;border-left:0;border-top:0}
+</style></head><body>
+<div class="card">
+  <div class="grid"></div><div class="glow"></div>
+  <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
+  <div class="inner">
+    <div class="mark">[L] <b>Code Q&amp;A</b></div>
+    <div>
+      <h1>Ask a codebase anything.<br>Every answer cites the lines it read <span class="chip">✓ app.py L81–85</span></h1>
+      <p class="sub">A small model trained with reinforcement learning to research a repository in a few tool calls and cite every claim to lines it actually read.</p>
+    </div>
+    <div class="foot"><span>Qwen3.5-4B on Tinker</span><span>Read-only tools, no code execution</span></div>
+  </div>
+</div>
+</body></html>

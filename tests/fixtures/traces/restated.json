@@ -40,7 +40,10 @@
    "name": null,
    "call_id": null,
    "parse_error": null,
-   "usage": {}
+   "usage": {
+    "prompt_tokens": 1000,
+    "completion_tokens": 120
+   }
   },
   {
    "role": "tool",
@@ -60,7 +63,10 @@
    "name": null,
    "call_id": null,
    "parse_error": null,
-   "usage": {}
+   "usage": {
+    "prompt_tokens": 1600,
+    "completion_tokens": 120
+   }
   }
  ],
  "stats": {

@@ -25,6 +25,10 @@ REPOS = {
 }
 
 
+# Rows dropped after review: question has no determinate answer (its own reference says the answer is builtin `object`)
+EXCLUDE: set[str] = {"pylint/34"}
+
+
 def parse_repo_commits(text: str) -> dict[str, str]:
     """repo_commit.txt lines look like '<url or name> <sha>' in some order; be permissive."""
     out: dict[str, str] = {}

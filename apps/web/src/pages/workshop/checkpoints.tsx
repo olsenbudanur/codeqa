@@ -55,7 +55,7 @@ export function CheckpointsPage() {
                         chips={[c.servable ? <Chip key="s" tone="good">served</Chip> : <Chip key="t">tinker</Chip>]}
                         action={
                           <Button variant="ghost" size="sm" onClick={() => navigate(`/compare?left=qwen4b-base&right=${encodeURIComponent(c.profile)}`)}>
-                            Compare with base
+                            Compare with the untrained model
                             <ArrowRight />
                           </Button>
                         }

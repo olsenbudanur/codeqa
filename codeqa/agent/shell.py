@@ -100,11 +100,17 @@ def sandbox_exec_works() -> bool:
         return False
 
 
-async def run(command: str, cwd: Path, timeout: float = TIMEOUT, cap: int = OUTPUT_CAP) -> tuple[str, str | None]:
+EXECUTOR = os.environ.get("CODEQA_BASH_EXECUTOR", "local")   # local | modal
+
+
+async def run(command: str, cwd: Path, timeout: float = TIMEOUT, cap: int = OUTPUT_CAP, repo_id: str | None = None) -> tuple[str, str | None]:
     """Returns (output, error). Output is stdout+stderr, capped. Error is a short reason when the command was refused."""
     why = precheck(command)
     if why:
         return "", f"blocked: {why}"
+    if EXECUTOR == "modal":
+        from codeqa.agent import modal_shell
+        return await modal_shell.run(command, repo_id or cwd.name, timeout, cap)
     argv = [BASH, "-r", "-c", command]
     if sandbox_exec_works():
         argv = [SANDBOX_EXEC, "-p", _sandbox_profile(cwd)] + argv

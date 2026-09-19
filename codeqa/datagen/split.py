@@ -98,6 +98,18 @@ def build(lo: float = 0.1, hi: float = 0.9, per_repo_cap: int = 120, keep_unmeas
         pool = {t.task_id: t for name in ("deepcodebench_test", "sweqa") for t in read_all(paths.TASKS_EVAL / f"{name}.jsonl", Task)
                 if (paths.TASKS_EVAL / f"{name}.jsonl").exists()}
         fast = [pool[i] for i in keep_ids if i in pool]
+        # ids that vanished (excluded after review) are replaced from the same source, seeded, repos not yet in fast first
+        have = {t.task_id for t in fast}
+        for src, name in (("deepcodebench", "deepcodebench_test"), ("sweqa", "sweqa")):
+            need = fast_n - sum(1 for t in fast if t.source == src)
+            if need <= 0:
+                continue
+            cands = [t for t in pool.values() if t.source == src and t.task_id not in have]
+            rng.shuffle(cands)
+            used_repos = {t.repo_id for t in fast if t.source == src}
+            cands.sort(key=lambda t: t.repo_id in used_repos)
+            for t in cands[:need]:
+                fast.append(t); have.add(t.task_id)
     for name in (() if fast else ("deepcodebench_test", "sweqa")):
         p = paths.TASKS_EVAL / f"{name}.jsonl"
         if not p.exists():

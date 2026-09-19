@@ -10,8 +10,8 @@ import asyncio
 import math
 
 from codeqa.grader import gates
-from codeqa.grader.citations import check_citations
-from codeqa.grader.efficiency import efficiency, redundant_reads
+from codeqa.grader.citations import check_citations, grounded_only_by_tolerance
+from codeqa.grader.efficiency import context_tokens, efficiency, redundant_reads
 from codeqa.grader.judge import JudgeClient, judge
 from codeqa.grader.repo import RepoFiles, load_repo
 from codeqa.grader.verifiers import uses_judge, verify
@@ -51,7 +51,8 @@ async def grade(task: Task, trace: Trace, variant: str = "none", judge_client: J
     comps.identifier_grounded = 1.0 if (not task.grading.expected_symbols or any(c.anchors_symbol for c in report.citations)) else 0.0
 
     ok, why = gates.budget_gate(trace, budget)
-    eff, over_cap = efficiency(trace.stats, budget, variant)
+    prefix, final = context_tokens(trace)
+    eff, over_cap = efficiency(trace.stats, budget, variant, prefix, final or None)
     if not ok or over_cap:
         return _fail("budget", f"budget: {why or 'over hard cap'}", comps)
     comps.efficiency = eff
@@ -97,7 +98,10 @@ def metrics(result: GradeResult, trace: Trace, task: Task) -> dict[str, float]:
         "answer_tokens": float(gates.approx_tokens(gates.extract_answer(trace))),
         "redundant_reads": float(redundant_reads(trace.stats.files_read)),
         "turns": float(trace.stats.turns),
-        "correct": 1.0 if (not nan and result.reward > 0) else 0.0,                  # binary; tool_calls / correct = calls per correct answer
+        "correct": 1.0 if (not nan and result.reward > 0) else 0.0,
+        "grounded_by_tolerance": float(grounded_only_by_tolerance(gates.extract_answer(trace), trace.stats.files_read, load_repo(task.repo_id))) if c.citations_parse else 0.0,
+        "prefix_tokens": float(context_tokens(trace)[0]),
+        "context_tokens": float(context_tokens(trace)[1]),                  # binary; tool_calls / correct = calls per correct answer
         "stalled": 1.0 if trace.stats.stop_reason in ("budget", "max_turns") else 0.0,   # ended without answering
     }
     for g in ("format", "citations", "grounding", "budget", "judge_error"):

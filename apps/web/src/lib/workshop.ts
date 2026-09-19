@@ -172,7 +172,49 @@ export interface TraceDetail {
   citations: CitationRow[]
 }
 
+export interface RepoOverview {
+  repo_id: string
+  url: string | null
+  sha: string | null
+  files: { path: string; lines: number; lang: string | null }[]
+  n_files: number
+  lines: number
+  symbols: number | null
+  dropped: Record<string, number>
+  languages: Record<string, number>
+  top_dirs: Record<string, number>
+  map: string
+  map_lines: number
+  n_summaries: number
+  nodoc: boolean
+  has_nodoc_variant: boolean
+}
+export interface ToolSpec {
+  name: string
+  description: string
+  parameters: { properties: Record<string, { type?: string; anyOf?: { type: string }[]; description?: string; default?: unknown }>; required?: string[] }
+}
+export interface ToolRun {
+  name: string
+  args: Record<string, unknown>
+  output: string
+  chars: number
+  seconds: number
+  error: boolean
+  files_read: Span[]
+}
+
+async function post<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(WORKSHOP_BASE + path, { method: 'POST', headers: { 'content-type': 'application/json', ...authHeaders() }, body: JSON.stringify(body), signal: AbortSignal.timeout(60_000) })
+  handleUnauthorized(res)
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}: ${await res.text()}`)
+  return (await res.json()) as T
+}
+
 export const workshop = {
+  repoOverview: (id: string) => get<RepoOverview>(`/repos/${encodeURIComponent(id)}/overview`),
+  repoTools: (id: string) => get<{ tools: ToolSpec[]; caps: Record<string, number> }>(`/repos/${encodeURIComponent(id)}/tools`),
+  runTool: (id: string, name: string, args: Record<string, unknown>) => post<ToolRun>(`/repos/${encodeURIComponent(id)}/tool`, { name, args }),
   runs: () => get<RunRow[]>('/runs'),
   run: (name: string) => get<RunDetail>(`/runs/${encodeURIComponent(name)}`),
   iteration: (name: string, n: number) => get<Iteration>(`/runs/${encodeURIComponent(name)}/iterations/${n}`),

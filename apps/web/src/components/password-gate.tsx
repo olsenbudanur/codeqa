@@ -40,7 +40,7 @@ function GateScreen() {
   return (
     <div className="flex min-h-dvh flex-col items-center justify-center bg-canvas px-4">
       <form onSubmit={submit} className="w-full max-w-[360px] rounded-lg border bg-background p-6">
-        <Wordmark />
+        <Wordmark home />
         <p className="mt-4 text-sm text-muted-foreground">This part needs the password.</p>
         <label htmlFor="pw" className="sr-only">Password</label>
         <Input id="pw" type="password" value={pw} onChange={(e) => setPw(e.target.value)} autoFocus autoComplete="current-password" className="mt-3" disabled={busy} />

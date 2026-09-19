@@ -46,6 +46,13 @@ export function Compare() {
   const eps = [e0, e1, e2, e3].slice(0, cols.length)
   const [ref, setRef] = useState<{ status: 'idle' | 'research' | 'judging' | 'done' | 'error'; episode: Episode; verdicts: Record<number, Verdict>; error?: string; model?: string; refCalls?: number; refSeconds?: number }>({ status: 'idle', episode: emptyEpisode, verdicts: {} })
   const judgeAbort = useRef<AbortController | null>(null)
+  const [elapsed, setElapsed] = useState(0)
+  useEffect(() => {
+    if (ref.status !== 'research' && ref.status !== 'judging') return
+    const t0 = Date.now()
+    const t = window.setInterval(() => setElapsed(Math.round((Date.now() - t0) / 1000)), 1000)
+    return () => window.clearInterval(t)
+  }, [ref.status])
 
   useEffect(() => {
     api.listRepos().then((list) => {
@@ -128,12 +135,17 @@ export function Compare() {
           <Button variant="ghost" size="icon" onClick={() => navigate('/app')} aria-label="Back to the workbench">
             <ArrowLeft />
           </Button>
-          <Wordmark />
+          <Wordmark home />
           <span className="h-4 w-px bg-border" aria-hidden />
-          <span className="text-sm">Compare</span>
+          <span className="text-sm">Compare models</span>
           <div className="ml-auto flex items-center gap-2">
-            {HAS_API && allAnswered && (
-              <Button size="sm" onClick={() => void runJudge()} disabled={ref.status === 'research' || ref.status === 'judging'}>
+            {HAS_API && (
+              <Button
+                size="sm"
+                onClick={() => void runJudge()}
+                disabled={!allAnswered || ref.status === 'research' || ref.status === 'judging'}
+                title={!allAnswered ? 'Ask a question first; the referee grades finished answers' : undefined}
+              >
                 <Gavel />
                 {ref.status === 'research' || ref.status === 'judging' ? 'Judging' : 'Judge with Opus'}
               </Button>
@@ -223,7 +235,7 @@ export function Compare() {
                         </div>
                         {!v && (
                           <p className="mt-2 flex items-center gap-2 font-mono text-[11.5px] text-muted-foreground">
-                            <BracketSpinner /> {ref.status === 'research' ? 'waiting for the referee' : 'grading'}
+                            <BracketSpinner /> {ref.status === 'research' ? 'waiting for the referee' : ref.status === 'judging' ? `grading, ${elapsed} s` : 'no verdict'}
                           </p>
                         )}
                         {v?.error && <p className="mt-2 text-xs text-destructive">{v.error}</p>}
@@ -267,7 +279,7 @@ export function Compare() {
                   )}
                   {col.ep.stats && (
                     <span className="ml-auto font-mono text-xs text-muted-foreground tabular-nums">
-                      {col.ep.stats.tool_calls} calls, {(col.ep.stats.prompt_tokens / 1000).toFixed(1)}k tokens, {col.ep.stats.seconds.toFixed(1)} s
+                      {col.ep.stats.tool_calls} calls, {(col.ep.stats.prompt_tokens / 1000).toFixed(1)}k tokens
                     </span>
                   )}
                 </div>
@@ -291,7 +303,6 @@ export function Compare() {
                     Format check failed: {col.ep.format.reason}. Scores 0 in training.
                   </p>
                 )}
-                {col.ep.status === 'error' && <p className="border-t px-4 py-2 text-xs text-destructive">{col.ep.error}</p>}
               </section>
             ))}
           </div>
@@ -327,11 +338,8 @@ function CompareSummary({ episodes, labels, judge: verdicts }: { episodes: Episo
   const fmtK = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n))
   // eps: differences below the display precision read as "same".
   const rows: { label: string; help: string; get: (e: Episode) => number | undefined; fmt: (n: number) => string; lowerIsBetter: boolean; text?: (e: Episode) => string; eps?: number }[] = [
-    { label: 'Tool calls', help: 'lookups the agent made before answering (budget 8)', get: (e) => e.stats?.tool_calls, fmt: String, lowerIsBetter: true },
+    { label: 'Tool calls', help: 'lookups the agent made before answering; the budget depends on the question type', get: (e) => e.stats?.tool_calls, fmt: String, lowerIsBetter: true },
     { label: 'Prompt tokens', help: 'input tokens summed over every turn; the whole conversation is re-sent each turn, so this grows with calls and with how much each tool returned', get: (e) => e.stats?.prompt_tokens, fmt: fmtK, lowerIsBetter: true, eps: 50 },
-    { label: 'Seconds, total', help: 'wall clock from question to answer', get: (e) => e.stats?.seconds, fmt: (n) => n.toFixed(1), lowerIsBetter: true, eps: 0.05 },
-    { label: 'Seconds in the model', help: 'time waiting for the model to generate, summed over turns', get: (e) => e.stats?.model_seconds, fmt: (n) => n.toFixed(1), lowerIsBetter: true, eps: 0.05 },
-    { label: 'Seconds in tools', help: 'time running grep, find_symbol and reads', get: (e) => e.stats?.tool_seconds, fmt: (n) => (n < 1 ? n.toFixed(2) : n.toFixed(1)), lowerIsBetter: true, eps: 0.05 },
     ...(verdicts
       ? [{
           label: 'Opus judge',

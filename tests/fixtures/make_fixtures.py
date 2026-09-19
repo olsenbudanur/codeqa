@@ -57,6 +57,12 @@ def trace(task_id: str, name: str, answer: str, reads: list[tuple[str, int, int]
         msgs.append(Message(role="assistant", content="", tool_calls=[tc]))
         msgs.append(Message(role="tool", name=tc.name, content="ERROR not_found"))
     msgs.append(Message(role="assistant", content=final_content if final_content is not None else answer, thinking=thinking))
+    # per-turn context, as the driver and trainer record it: a 1,000-token prefix growing ~600 tokens per tool turn
+    turn = 0
+    for m in msgs:
+        if m.role == "assistant":
+            m.usage = {"prompt_tokens": 1000 + 600 * turn, "completion_tokens": 120}
+            turn += 1
     n_calls = tool_calls if tool_calls is not None else len(reads) + len(extra_calls or [])
     return Trace(task_id=task_id, profile=name, messages=msgs, answer=answer,
                  stats=TraceStats(turns=len(reads) + 1, tool_calls=n_calls, tool_errors=tool_errors, prompt_tokens=prompt_tokens,

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { MessageSquarePlus, PanelLeft, Square } from 'lucide-react'
+import { Activity, Columns2, MessageSquarePlus, PanelLeft, Square } from 'lucide-react'
 import { BracketSpinner, ScanLine } from '@/components/working'
 import { navigate } from '@/lib/router'
 import { Wordmark } from '@/components/wordmark'
@@ -23,7 +23,6 @@ import { Ledger } from '@/components/research/ledger'
 import { AnswerPanel } from '@/components/answer/answer-panel'
 import { FileViewer } from '@/components/file/file-viewer'
 
-const TOOL_BUDGET = 8
 
 export function Workbench() {
   const [repos, setRepos] = useState<RepoSummary[]>([])
@@ -250,11 +249,12 @@ export function Workbench() {
                 Sample data
               </span>
             )}
-            <Button variant="ghost" size="sm" onClick={() => navigate('/compare')} className="max-sm:hidden">
-              Compare
+            <Button variant="outline" size="sm" onClick={() => navigate('/compare')} className="h-8 max-sm:hidden">
+              <Columns2 />
+              Compare models
             </Button>
-            <Button variant="ghost" size="sm" onClick={() => navigate('/workshop/live')} className="max-sm:hidden">
-              {liveRun && <span className="size-1.5 animate-pulse rounded-full bg-verified" aria-label="A run is training" />}
+            <Button variant="outline" size="sm" onClick={() => navigate('/workshop/live')} className="h-8 max-sm:hidden">
+              {liveRun ? <span className="size-1.5 animate-pulse rounded-full bg-verified" aria-label="A run is training" /> : <Activity />}
               Workshop
             </Button>
             <ModelPicker profiles={profiles} value={profile} onChange={setProfile} disabled={running} />
@@ -315,7 +315,7 @@ export function Workbench() {
                         </p>
                       </div>
                     )}
-                    <Ledger rows={episode.rows} running={running} budget={TOOL_BUDGET} onOpen={setOpenSpan} />
+                    <Ledger rows={episode.rows} running={running} onOpen={setOpenSpan} />
                     <AnswerPanel episode={episode} onOpen={setOpenSpan} />
                     {episode.status === 'error' && (
                       <div className="mt-6 border-t pt-3 text-sm">

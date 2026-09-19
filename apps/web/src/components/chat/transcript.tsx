@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Check, ChevronRight } from 'lucide-react'
+import { Check, ChevronRight, CircleAlert } from 'lucide-react'
 import { Dots } from '@/components/working'
 import { ThinkingBlock, ThinkingToggleAll } from '@/components/research/thinking-block'
 import type { Span } from '@/lib/contracts'
@@ -63,7 +63,18 @@ export function Transcript({ episode, onOpen, className }: { episode: Episode; o
                 </div>
               </>
             ) : (
-              <Activity rows={episode.rows} running={running} onOpen={onOpen} />
+              <>
+                <Activity rows={episode.rows} running={running} onOpen={onOpen} />
+                {episode.status === 'error' && (
+                  <p role="alert" className="row-in mt-3 flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-[13px]">
+                    <CircleAlert className="mt-0.5 size-4 shrink-0 text-destructive" aria-hidden />
+                    <span>
+                      <span className="font-medium">No answer.</span> {episode.error}
+                      <span className="block text-xs text-muted-foreground">In training this scores 0 (and −0.1 with the no-answer penalty).</span>
+                    </span>
+                  </p>
+                )}
+              </>
             )}
           </div>
         </div>

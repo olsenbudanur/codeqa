@@ -40,7 +40,10 @@
    "name": null,
    "call_id": null,
    "parse_error": null,
-   "usage": {}
+   "usage": {
+    "prompt_tokens": 1000,
+    "completion_tokens": 120
+   }
   },
   {
    "role": "tool",
@@ -70,7 +73,10 @@
    "name": null,
    "call_id": null,
    "parse_error": null,
-   "usage": {}
+   "usage": {
+    "prompt_tokens": 1600,
+    "completion_tokens": 120
+   }
   },
   {
    "role": "tool",
@@ -100,7 +106,10 @@
    "name": null,
    "call_id": null,
    "parse_error": null,
-   "usage": {}
+   "usage": {
+    "prompt_tokens": 2200,
+    "completion_tokens": 120
+   }
   },
   {
    "role": "tool",
@@ -130,7 +139,10 @@
    "name": null,
    "call_id": null,
    "parse_error": null,
-   "usage": {}
+   "usage": {
+    "prompt_tokens": 2800,
+    "completion_tokens": 120
+   }
   },
   {
    "role": "tool",
@@ -160,7 +172,10 @@
    "name": null,
    "call_id": null,
    "parse_error": null,
-   "usage": {}
+   "usage": {
+    "prompt_tokens": 3400,
+    "completion_tokens": 120
+   }
   },
   {
    "role": "tool",
@@ -190,7 +205,10 @@
    "name": null,
    "call_id": null,
    "parse_error": null,
-   "usage": {}
+   "usage": {
+    "prompt_tokens": 4000,
+    "completion_tokens": 120
+   }
   },
   {
    "role": "tool",
@@ -220,7 +238,10 @@
    "name": null,
    "call_id": null,
    "parse_error": null,
-   "usage": {}
+   "usage": {
+    "prompt_tokens": 4600,
+    "completion_tokens": 120
+   }
   },
   {
    "role": "tool",
@@ -240,7 +261,10 @@
    "name": null,
    "call_id": null,
    "parse_error": null,
-   "usage": {}
+   "usage": {
+    "prompt_tokens": 5200,
+    "completion_tokens": 120
+   }
   }
  ],
  "stats": {

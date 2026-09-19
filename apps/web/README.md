@@ -28,6 +28,10 @@ pnpm typecheck && pnpm lint && pnpm build
 
 Routes: `/` home page (hero replays the recorded episode), `/app` workbench, `/compare` one question to up to four models side by side, first column as baseline (demo beat 6; `?models=a,b,c` prefills), `/workshop/live` one-screen training monitor (auto-picks the run writing metrics, 10 s refresh, tab title shows step and reward, toasts on new warnings), `/workshop/{runs,checkpoints,data,traces}` the read-only workshop (D6; needs `VITE_API_URL`).
 
+## Link previews and icons
+
+`index.html` carries Open Graph and Twitter card tags; the image is `public/og.png` (1200×630) and the icons are `public/icon-*.png`, `apple-touch-icon.png`, `favicon.svg`, all derived from the `[L]` mark. Previews need an absolute image URL, so set `VITE_SITE_URL` to the deployed origin at build time (`.env` holds the localhost default). Sources: `scripts/og.html` and `scripts/icon.html`; screenshot them at 1200×630 and 512×512 (e.g. with Playwright) to regenerate.
+
 ## Layout
 
 ```

@@ -40,17 +40,28 @@ def infer_type(question: str) -> str:
 #   assumes; they carry a facts rubric, so they are graded as `explain` (judge) instead of path/symbol F1.
 FIXES: dict[str, dict[str, Any]] = {
     "4344b2a4-42dd-441f-8c9c-2438db99176b": {"replace": ("≥ 2024.1.1", "≥ 2024.12.1")},
-    "d806e6bd-9e8a-4759-8b83-01fdfdfba005": {"task_type": "explain", "question_suffix": " (in the Python package)"},
+    "d806e6bd-9e8a-4759-8b83-01fdfdfba005": {"task_type": "explain", "question_suffix": " (in the Python package)"},   # now in EXCLUDE
     "d9050518-df81-40ed-a90d-a8a3310f577f": {"task_type": "explain", "question_suffix": " (in the CSI500 index collector)"},
     # Sonnet validation of the fast set (23:55): three questions answered correctly about a different, plausible target in
     # a large repo (DeepCodeBench assumes the source file as context); the qualifier restores that context
     "6602505a-78ab-43d8-ba75-00346d015c8f": {"question_suffix": " (in the SAM model)"},
     "c5c09820-4ff9-43e1-aabc-7c29436eb32d": {"question_suffix": " (for SparseCategoricalCrossentropy)"},
+    # fast-set frontier check, round 2: correct answers zeroed by path-F1 on rows that carry a facts rubric -> explain;
+    # one more question that never names its pipeline (Sonnet answered about SDXL, rubric is SD3)
+    "ba0f687e-5de9-4782-8933-5288e598159b": {"task_type": "explain"},
+    "eaf163e5-ed17-45ad-9069-47e202b6130b": {"task_type": "explain"},
+    "61f91ebc-d983-406e-b9c2-1ad2fbb55569": {"question_suffix": " (in StableDiffusion3Pipeline)", "paths_from_citations": True},
     "d58dd0e8-89c7-48b4-8da4-1fa6a3ae3aac": {"task_type": "explain", "paths_from_citations": True},
     # repos with a C++ core and a Python package: the rubric is about the Python side, the question did not say so
     # (Sonnet answered from src/common/ranking_utils.h and src/io/dataset.cpp and scored 0/4, 0/5)
     "625f7f86-54ab-4445-89b2-807c16a8cee8": {"question_suffix": " (in the Python package)"},
 }
+
+
+# Rows whose gold does not hold at the pinned commit (verified by grep on the snapshot, 2026-09-19):
+# - b900be44: "gpu_coord_descent" appears only in src/gbm/gblinear.cc (C++ fatal), not in python-package/ as the answer claims
+# - d806e6bd: the "different number of rows" LightGBMError message exists nowhere in the snapshot; Python raises ValueError + warns
+EXCLUDE: set[str] = {"b900be44-8949-4444-8667-4f44cc0a1ba3", "d806e6bd-9e8a-4759-8b83-01fdfdfba005"}
 
 
 def apply_fixes(row: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:

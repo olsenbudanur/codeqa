@@ -37,6 +37,7 @@ Parses files on request with a 5 s mtime-keyed cache; never launches, grades wit
 | `GET /runs/{name}/iterations/{n}` | `iteration_NNNNNN/train_rollout_summaries.jsonl` → groups → trajectories (reward, tool sequence, stop, answer excerpt). |
 | `GET /checkpoints` | `data/models/manifest.json` joined with `profiles.yaml` and `data/evals/<profile>/<set>/results.json` (+ `sweqa_judge.json`); baselines `qwen4b-base` and `claude`. |
 | `GET /data/summary`, `GET /data/passrate`, `GET /data/tasks`, `GET /data/repos` | `data/tasks/{raw,train,eval}/*.jsonl`, `reports/passrate.jsonl` (difficulty = lane B's rule, window [0.1, 0.9]), `data/repos/*/manifest.json`. Task cards carry the pass-rate row, bucket, and example trace ids. |
+| `GET /repos/{repo_id}/overview`, `GET /repos/{repo_id}/tools`, `POST /repos/{repo_id}/tool {name, args}` | Repo page: manifest stats, languages, top directories, the verbatim `map.txt`; the five tool specs and caps; run one tool through the real `RepoTools` (same caps and error text the agent gets) and return the output plus the spans that count as read. Stateless: no call budget. |
 | `GET /traces`, `GET /traces/{id}`, `GET /traces/compare?a&b` | ids `trace/<run>/<stem>`, `eval/<profile>/<set>/<task_id>`, `rollout/<run>/<iter>/<group>/<traj>`. Detail = C9 events rebuilt from the C6 trace (or the rollout logs), stats, grade (per_task row / rollout metrics / `check_citations` only), citation table. |
 
 

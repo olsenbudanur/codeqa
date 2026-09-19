@@ -92,6 +92,9 @@ class CodeQAGroupBuilder(EnvGroupBuilder):
             history = list(getattr(inner, "history", []) or [])
         trace = renv.trace_from_history(history)
         trace.stats.prompt_tokens, trace.stats.completion_tokens = trajectory_token_counts(traj)
+        assistants = [m for m in trace.messages if m.role == "assistant"]
+        for m, t in zip(assistants, traj.transitions):          # per-turn context so efficiency can use the final context
+            m.usage = {"prompt_tokens": int(t.ob.length), "completion_tokens": len(t.ac.tokens)}
         if traj.stop_reason and trace.stats.stop_reason == "answer" and not trace.answer:
             trace.stats.stop_reason = "parse_error" if "parse" in traj.stop_reason else trace.stats.stop_reason
         return trace

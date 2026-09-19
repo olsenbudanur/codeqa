@@ -39,7 +39,7 @@ export function Home() {
 
         <div className="flex min-h-dvh flex-col">
           <header className="mx-auto flex h-[72px] w-full max-w-[1200px] shrink-0 items-center gap-8 px-5 short:h-16 sm:px-8">
-            <Wordmark />
+            <Wordmark home />
             <div className="ml-auto flex items-center gap-2">
               <Button className="h-10 px-4 text-[14.5px]" onClick={open}>
                 Open the workbench

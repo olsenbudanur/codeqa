@@ -80,9 +80,21 @@ class RepoFiles:
         return [s for s in self.symbols if s.name == qualified]
 
     def symbols_in(self, path: str, start: int, end: int) -> list[IndexSymbol]:
-        """Symbols whose definition line falls inside the given range."""
+        """Symbols whose definition (def line through end of body) overlaps the given range."""
         path = self.normalize(path)
-        return [s for s in self.symbols if s.path == path and start <= s.start <= end]
+        return [s for s in self.symbols if s.path == path and start <= s.end and end >= s.start]
+
+    def line_text(self, path: str, n: int) -> str:
+        """Text of line n (1-based), "" if unavailable."""
+        path = self.normalize(path)
+        if self.root is None or ".." in Path(path).parts:
+            return ""
+        fp = self.root / path
+        try:
+            lines = fp.read_text(errors="replace").splitlines()
+        except OSError:
+            return ""
+        return lines[n - 1] if 1 <= n <= len(lines) else ""
 
 
 @lru_cache(maxsize=64)

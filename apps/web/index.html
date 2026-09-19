@@ -4,8 +4,27 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="light dark" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>Code Q&A</title>
+    <meta name="description" content="Ask a codebase anything. Every answer cites the lines it read. A small model trained with RL to research a repository in a few tool calls." />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <meta name="theme-color" content="#0a0c10" />
+    <!-- Link previews. VITE_SITE_URL must be the public origin when deployed; previews need absolute image URLs. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Code Q&A" />
+    <meta property="og:title" content="Code Q&A" />
+    <meta property="og:description" content="Ask a codebase anything. Every answer cites the lines it read." />
+    <meta property="og:url" content="%VITE_SITE_URL%/" />
+    <meta property="og:image" content="%VITE_SITE_URL%/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Code Q&A: ask a codebase anything, every answer cites the lines it read" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Code Q&A" />
+    <meta name="twitter:description" content="Ask a codebase anything. Every answer cites the lines it read." />
+    <meta name="twitter:image" content="%VITE_SITE_URL%/og.png" />
     <script>
       try {
         var t = localStorage.getItem('theme');

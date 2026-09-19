@@ -139,3 +139,16 @@ def test_run_carries_optimizer_metrics_and_warnings(client: TestClient, data: Pa
     run = client.get(f"/runs/{RUN}").json()
     assert run["metrics"][1]["optim/entropy"] == 0.1 and run["metrics"][1]["kl_ref/kl"] == 0.01
     assert any("KL" in w for w in run["warnings"]) and any("entropy" in w for w in run["warnings"])
+
+
+def test_repo_overview_and_tool_console(client: TestClient) -> None:
+    ov = client.get(f"/repos/{REPO}/overview").json()
+    assert ov["n_files"] == 1 and ov["lines"] == 20 and ov["map"].startswith("pkg/") and ov["files"][0]["path"] == "pkg/mod.py"
+    specs = client.get(f"/repos/{REPO}/tools").json()
+    assert {t["name"] for t in specs["tools"]} == {"overview", "find_symbol", "grep", "read_file", "list_dir"}
+    r = client.post(f"/repos/{REPO}/tool", json={"name": "read_file", "args": {"path": "pkg/mod.py", "start": 2, "end": 3}}).json()
+    assert "line 2" in r["output"] and r["error"] is False and r["files_read"] == [{"path": "pkg/mod.py", "start": 2, "end": 3}]
+    bad = client.post(f"/repos/{REPO}/tool", json={"name": "read_file", "args": {"path": "nope.py"}}).json()
+    assert bad["error"] is True
+    assert client.post(f"/repos/{REPO}/tool", json={"name": "rm", "args": {}}).status_code == 400
+    assert client.get("/repos/x__y__0000000/overview").status_code == 404

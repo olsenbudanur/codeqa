@@ -129,7 +129,9 @@ def parse_verdict(text: str, expected_items: int | None) -> JudgeVerdict:
     items = data.get("items")
     if not isinstance(items, list) or not items:
         raise ValueError("judge output has no items")
-    sat = [bool(it.get("satisfied")) for it in items]
+    def _true(v: Any) -> bool:
+        return v is True or (isinstance(v, str) and v.strip().lower() in ("true", "yes"))
+    sat = [_true(it.get("satisfied")) for it in items]
     names = [str(it.get("fact", it.get("id", i + 1))) for i, it in enumerate(items)]
     n = expected_items or len(sat)
     if expected_items and len(sat) != expected_items:

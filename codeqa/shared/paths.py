@@ -20,7 +20,7 @@ MODELS = DATA / "models"
 MODELS_MANIFEST = MODELS / "manifest.json"
 
 FIXTURES = ROOT / "tests" / "fixtures"
-PROFILES = ROOT / "profiles.yaml"
+PROFILES = Path(os.environ.get("CODEQA_PROFILES", ROOT / "profiles.yaml"))   # on Modal: /data/profiles.yaml (the volume)
 
 
 def repo_dir(repo_id: str) -> Path:

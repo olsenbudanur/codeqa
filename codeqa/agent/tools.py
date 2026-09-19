@@ -305,7 +305,7 @@ class RepoTools:
                                              "Show line numbers for anything you will cite: grep -rn PATTERN DIR, or nl -ba FILE | sed -n 'A,Bp'."]) -> ToolResult:
         """Run one read-only shell command in the repo root (ls, find, grep -n, nl, sed -n, head, tail, wc). No writes, no cd, no .. or absolute paths."""
         from codeqa.agent import shell
-        out, err = await shell.run(str(command or ""), cwd=self.root)
+        out, err = await shell.run(str(command or ""), cwd=self.root, repo_id=self.repo_id)
         if err:
             return self._finish(f"ERROR {err}", error=True)
         if not out.strip():

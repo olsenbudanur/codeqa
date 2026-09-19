@@ -54,6 +54,8 @@ def import_deepcodebench() -> dict[str, Any]:
         tasks: list[Task] = []
         raw_paths = ok_paths = 0
         for r in rows[split]:
+            if r["id"] in dcb.EXCLUDE:
+                continue
             idx = indexes[dcb.repo_id_of(r)]
             plain = dcb.to_task(r, task_split)                # unresolved, for the path-resolution rate
             t = dcb.to_task(r, task_split, index=idx)
@@ -72,7 +74,8 @@ def import_deepcodebench() -> dict[str, Any]:
             "citation_rate_by_repo": {k: f"{cit_by_repo[k]}/{per_repo[k]}" for k in sorted(per_repo)},
             "rubric_items_mean": round(sum(len(t.grading.rubric) for t in tasks) / max(n, 1), 2),
         }
-        _log(f"  deepcodebench/{split}: {n} records; paths {ok_paths}/{raw_paths} resolved; "
+        report[split]["excluded"] = sum(1 for r in rows[split] if r["id"] in dcb.EXCLUDE)
+        _log(f"  deepcodebench/{split}: {n} records ({report[split]['excluded']} excluded); paths {ok_paths}/{raw_paths} resolved; "
              f"{with_cit}/{n} tasks with required_citations; types {report[split]['types']}")
     report["seconds"] = round(time.time() - t0, 1)
     _save_report("deepcodebench", report)
@@ -104,6 +107,8 @@ def import_sweqa() -> dict[str, Any]:
         tot: Counter[str] = Counter()
         with_cit = 0
         for i, r in enumerate(rows):
+            if f"{split}/{i}" in sq.EXCLUDE:
+                continue
             _, c = sq.resolve_citations(idx, sq.extract_citations(r["answer"]), r["answer"])
             tot.update(c)
             t = sq.to_task(r, split, m.sha, i, index=idx)

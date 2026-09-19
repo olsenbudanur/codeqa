@@ -13,6 +13,7 @@ import asyncio
 import json
 import os
 import re
+import sys
 import time
 from typing import Any, AsyncIterator
 
@@ -32,10 +33,15 @@ JUDGE_MODEL = os.environ.get("CODEQA_JUDGE_MODEL", "claude-opus-5")
 RESEARCH_PROFILE = EndpointProfile(name="opus", kind="anthropic", model=JUDGE_MODEL, max_generation_tokens=4096, thinking=True)
 VERDICT_PROFILE = EndpointProfile(name="opus-judge", kind="anthropic", model=JUDGE_MODEL, max_generation_tokens=2048, thinking=False)
 RESEARCH_TIMEOUT = float(os.environ.get("CODEQA_JUDGE_RESEARCH_TIMEOUT", "300"))
-VERDICT_TIMEOUT = 90.0
+VERDICT_TIMEOUT = 60.0
+VERDICT_RETRIES = 2
 CANDIDATE_MAX_TOKENS = 1500
 
 _clients: dict[str, ModelClient] = {}
+
+
+def log(*a: Any) -> None:
+    print(*a, file=sys.stderr, flush=True)
 
 
 def research_client() -> ModelClient:
@@ -136,14 +142,18 @@ async def judge_one(question: str, reference: str, ref_calls: int, cand: Candida
     )
     msgs = [Message(role="system", content=JUDGE_SYSTEM), Message(role="user", content=user)]
     last = ""
-    for attempt in range(3):
+    t0 = time.time()
+    for attempt in range(VERDICT_RETRIES):
         try:
             reply = await asyncio.wait_for(verdict_client().chat(msgs, max_tokens=2048), timeout=VERDICT_TIMEOUT)
-            return parse_verdict(reply.content)
+            v = parse_verdict(reply.content)
+            log(f"[judge] {cand.label!r}: {v['score']}/10 in {time.time()-t0:.1f}s (attempt {attempt+1})")
+            return v
         except Exception as e:  # noqa: BLE001
             last = f"{type(e).__name__}: {str(e)[:200]}"
-            if attempt < 2:
-                await asyncio.sleep(2.0 * (attempt + 1))
+            log(f"[judge] {cand.label!r} attempt {attempt+1} failed: {last}")
+            if attempt < VERDICT_RETRIES - 1:
+                await asyncio.sleep(2.0)
     raise RuntimeError(last)
 
 
@@ -166,6 +176,7 @@ async def judge_events(req: JudgeRequest) -> AsyncIterator[dict[str, Any]]:
             env = RepoEnv.from_question(req.repo_id, req.question, RESEARCH_PROFILE, task_type=req.task_type)
             trace = await asyncio.wait_for(run_episode(env, research_client(), on_event, temperature=0.3), timeout=RESEARCH_TIMEOUT)
             save_trace(trace, run="judge")
+            log(f"[judge] referee researched in {trace.stats.tool_calls} calls, {trace.stats.seconds}s, stop={trace.stats.stop_reason}")
             if not trace.answer:
                 await queue.put({"type": "error", "message": f"The referee did not reach an answer ({trace.stats.stop_reason}); no verdicts."})
                 return

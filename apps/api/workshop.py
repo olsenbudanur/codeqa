@@ -707,3 +707,96 @@ def compare_traces(a: str, b: str) -> dict[str, Any]:
 @router.get("/traces/{trace_id:path}")
 def get_trace(trace_id: str) -> dict[str, Any]:
     return trace_detail(trace_id)
+
+
+# ---------------------------------------------------------------------------
+# Repo page: what the agent sees, and a console to call its tools by hand.
+# ---------------------------------------------------------------------------
+
+from codeqa.agent.tools import RepoTools  # noqa: E402  (agent is core; api may import it)
+
+_tools_cache: dict[str, tuple[float, RepoTools]] = {}
+
+
+def repo_tools(repo_id: str) -> RepoTools:
+    """One RepoTools per repo, rebuilt when its index changes. Call counting is reset per request (see run_tool)."""
+    idx = paths.index_dir(repo_id) / "symbols.json"
+    m = _mtime(idx)
+    hit = _tools_cache.get(repo_id)
+    if hit and hit[0] == m:
+        return hit[1]
+    t = RepoTools(repo_id)
+    _tools_cache[repo_id] = (m, t)
+    return t
+
+
+@router.get("/repos/{repo_id}/overview")
+def repo_overview(repo_id: str) -> dict[str, Any]:
+    mp = paths.repo_dir(repo_id) / "manifest.json"
+    if not mp.exists():
+        raise HTTPException(404, f"unknown repo {repo_id}")
+    m = read_json(mp, {}) or {}
+    files = m.get("files", [])
+    idx = paths.index_dir(repo_id)
+    map_p = idx / "map.txt"
+    summ = read_json(idx / "summaries.json", {}) if (idx / "summaries.json").exists() else {}
+    langs = Counter(f.get("lang") or "other" for f in files)
+    top_dirs = Counter((f["path"].split("/")[0] if "/" in f["path"] else ".") for f in files)
+    nsym = len((read_json(idx / "symbols.json", {}) or {}).get("symbols", [])) if (idx / "symbols.json").exists() else None
+    return {
+        "repo_id": repo_id,
+        "url": m.get("url"),
+        "sha": m.get("sha"),
+        "files": [{"path": f["path"], "lines": f.get("lines", 0), "lang": f.get("lang")} for f in files],
+        "n_files": len(files),
+        "lines": sum(int(f.get("lines", 0)) for f in files),
+        "symbols": nsym,
+        "dropped": m.get("dropped", {}),
+        "languages": dict(langs.most_common(12)),
+        "top_dirs": dict(top_dirs.most_common(20)),
+        "map": map_p.read_text() if map_p.exists() else "",
+        "map_lines": len(map_p.read_text().splitlines()) if map_p.exists() else 0,
+        "n_summaries": len(summ) if isinstance(summ, dict) else 0,
+        "nodoc": repo_id.endswith("__nodoc"),
+        "has_nodoc_variant": (paths.repo_dir(repo_id + "__nodoc") / "manifest.json").exists(),
+    }
+
+
+@router.get("/repos/{repo_id}/tools")
+def repo_tool_specs(repo_id: str) -> dict[str, Any]:
+    if not (paths.repo_dir(repo_id) / "manifest.json").exists():
+        raise HTTPException(404, f"unknown repo {repo_id}")
+    t = repo_tools(repo_id)
+    caps = t.caps
+    return {"tools": t.specs(), "caps": {k: getattr(caps, k) for k in dir(caps) if not k.startswith("_") and isinstance(getattr(caps, k), (int, float))}}
+
+
+from pydantic import BaseModel as _BaseModel  # noqa: E402
+
+
+class ToolCallBody(_BaseModel):
+    name: str
+    args: dict[str, Any] = {}
+
+
+@router.post("/repos/{repo_id}/tool")
+async def run_tool(repo_id: str, body: ToolCallBody) -> dict[str, Any]:
+    """Run one agent tool exactly as the driver would (same caps, same error text) and return what the agent would see."""
+    from tinker_cookbook.tool_use.types import ToolInput
+
+    if not (paths.repo_dir(repo_id) / "manifest.json").exists():
+        raise HTTPException(404, f"unknown repo {repo_id}")
+    t = repo_tools(repo_id)
+    tools = {x.name: x for x in t.tools()}
+    if body.name not in tools:
+        raise HTTPException(400, f"unknown tool {body.name!r}; one of {', '.join(tools)}")
+    # The console is stateless: no call budget, and files_read is per call.
+    t.max_tool_calls = None
+    before = len(t.files_read)
+    t0 = time.time()
+    result = await tools[body.name].run(ToolInput(arguments=body.args, call_id=f"console_{int(t0)}"))
+    content = result.messages[0]["content"]
+    text = "".join(p.get("text", "") if isinstance(p, dict) else str(p) for p in content) if isinstance(content, list) else str(content)
+    spans = [s.model_dump() for s in t.files_read[before:]]
+    return {"name": body.name, "args": body.args, "output": text, "chars": len(text), "seconds": round(time.time() - t0, 3),
+            "error": text.startswith("ERROR"), "files_read": spans}

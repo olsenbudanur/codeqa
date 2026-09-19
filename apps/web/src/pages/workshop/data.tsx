@@ -152,7 +152,7 @@ export function DataPage({ params }: { params: URLSearchParams }) {
 
           <TaskBrowser initial={params} />
 
-          <Panel title="Repositories" aside={`${summary.repos.length} snapshots`}>
+          <Panel title="Repositories" aside={`${summary.repos.length} snapshots; click one for its map, files and a tool console`}>
             <div className="max-h-[420px] overflow-auto">
               <table className="w-full text-[12.5px]">
                 <thead className="sticky top-0 bg-background text-left text-xs text-muted-foreground">
@@ -166,8 +166,8 @@ export function DataPage({ params }: { params: URLSearchParams }) {
                 </thead>
                 <tbody>
                   {summary.repos.map((r) => (
-                    <tr key={r.repo_id} className="border-b last:border-0">
-                      <td className="py-1.5 font-mono">{r.repo_id}</td>
+                    <tr key={r.repo_id} className="cursor-pointer border-b last:border-0 hover:bg-accent/60" onClick={() => navigate(`/workshop/repos/${encodeURIComponent(r.repo_id)}`)}>
+                      <td className="py-1.5 font-mono underline-offset-2 hover:underline">{r.repo_id}</td>
                       <td className="py-1.5 text-right font-mono tabular-nums">{r.files.toLocaleString()}</td>
                       <td className="py-1.5 text-right font-mono tabular-nums">{r.lines.toLocaleString()}</td>
                       <td className="py-1.5 text-right font-mono tabular-nums">{r.symbols?.toLocaleString() ?? '–'}</td>

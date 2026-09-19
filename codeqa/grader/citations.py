@@ -23,12 +23,15 @@ def parse_citations(answer: str) -> list[Citation]:
     return out
 
 
-def read_lines_by_path(files_read: Iterable[Span], normalize=lambda p: p) -> dict[str, set[int]]:
-    """Union of every line read, per path. Grounding is per line, so re-reading never helps and
-    a cited range must be fully covered."""
+GROUNDING_TOLERANCE = 1   # a cited range may extend one line past what was shown (grep shows one line; models cite L39-L40)
+
+
+def read_lines_by_path(files_read: Iterable[Span], normalize=lambda p: p, tolerance: int = 0) -> dict[str, set[int]]:
+    """Union of every line read, per path, optionally widened by `tolerance` lines on each side of every span.
+    Grounding is per line, so re-reading never helps and a cited range must be fully covered."""
     cov: dict[str, set[int]] = {}
     for s in files_read:
-        cov.setdefault(normalize(s.path), set()).update(range(s.start, s.end + 1))
+        cov.setdefault(normalize(s.path), set()).update(range(max(1, s.start - tolerance), s.end + 1 + tolerance))
     return cov
 
 
@@ -45,11 +48,13 @@ def redundant_read_lines(files_read: Iterable[Span]) -> int:
 
 
 def check_citations(answer: str, files_read: list[Span], repo_id: str,
-                    expected_symbols: Iterable[str] = (), repo: RepoFiles | None = None) -> CitationReport:
+                    expected_symbols: Iterable[str] = (), repo: RepoFiles | None = None,
+                    tolerance: int = GROUNDING_TOLERANCE) -> CitationReport:
     """Per-citation flags. `exists`: file present and range inside it. `grounded`: every cited line was read
-    this episode. `anchors_symbol`: the citation contains the definition line of a gold symbol (index lookup)."""
+    this episode (within `tolerance` lines of a shown span). `anchors_symbol`: the citation contains the definition
+    line of a gold symbol (index lookup)."""
     repo = repo or load_repo(repo_id)
-    cov = read_lines_by_path(files_read, repo.normalize)
+    cov = read_lines_by_path(files_read, repo.normalize, tolerance)
     gold_defs: list[tuple[str, int]] = []
     for q in expected_symbols:
         for s in repo.find_symbols(q):
@@ -66,3 +71,16 @@ def check_citations(answer: str, files_read: list[Span], repo_id: str,
 
 def cited_paths(report: CitationReport, repo: RepoFiles) -> set[str]:
     return {repo.normalize(c.path) for c in report.citations}
+
+
+def grounded_only_by_tolerance(answer: str, files_read: list[Span], repo: RepoFiles) -> int:
+    """How many citations pass grounding only thanks to GROUNDING_TOLERANCE (near misses). Logged, not rewarded."""
+    strict = read_lines_by_path(files_read, repo.normalize, 0)
+    loose = read_lines_by_path(files_read, repo.normalize, GROUNDING_TOLERANCE)
+    n = 0
+    for c in parse_citations(answer):
+        path = repo.normalize(c.path)
+        lines = set(range(c.start, c.end + 1))
+        if c.start <= c.end and lines <= loose.get(path, set()) and not lines <= strict.get(path, set()):
+            n += 1
+    return n

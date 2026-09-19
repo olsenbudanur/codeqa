@@ -10,6 +10,7 @@ import { ThemeToggle } from '@/components/theme-toggle'
 import { Wordmark } from '@/components/wordmark'
 import { RunsPage } from './runs'
 import { LivePage } from './live'
+import { RepoPage } from './repo'
 import { CheckpointsPage } from './checkpoints'
 import { DataPage } from './data'
 import { TracesPage } from './traces'
@@ -42,11 +43,12 @@ export function Workshop({ path, search }: { path: string; search: string }) {
   } else if (section === 'live') body = <LivePage requested={params.get('run')} />
   else if (section === 'checkpoints') body = <CheckpointsPage />
   else if (section === 'data') body = <DataPage params={params} />
+  else if (section === 'repos' && parts[0]) body = <RepoPage repoId={decodeURIComponent(parts[0])} params={params} />
   else if (section === 'traces') body = <TracesPage parts={parts} params={params} />
   else if (section === 'runs') body = <RunsPage name={parts[0]} params={params} />
   else body = <LivePage requested={params.get('run')} />
 
-  const active = section && NAV.some((n) => n.href.endsWith(section)) ? section : 'live'
+  const active = section === 'repos' ? 'data' : section && NAV.some((n) => n.href.endsWith(section)) ? section : 'live'
 
   return (
     <TooltipProvider delayDuration={200}>
@@ -55,7 +57,7 @@ export function Workshop({ path, search }: { path: string; search: string }) {
           <Button variant="ghost" size="icon" onClick={() => navigate('/app')} aria-label="Back to the workbench">
             <ArrowLeft />
           </Button>
-          <Wordmark />
+          <Wordmark home />
           <span className="h-4 w-px bg-border" aria-hidden />
           <span className="text-sm">Workshop</span>
           <nav className="ml-6 hidden items-center gap-1 md:flex" aria-label="Workshop sections">

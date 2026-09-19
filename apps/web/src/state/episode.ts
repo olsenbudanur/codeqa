@@ -98,7 +98,7 @@ function applyEvent(state: Episode, ev: SSEEvent): Episode {
       return { ...state, stats }
     }
     case 'done':
-      return { ...state, status: 'done' }
+      return { ...state, status: state.status === 'error' ? 'error' : 'done' }
     case 'error':
       return { ...state, status: 'error', error: ev.message }
   }
