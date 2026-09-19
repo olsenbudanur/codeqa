@@ -27,6 +27,15 @@ ARMS = {  # arm -> (variant, extra env, default steps)
     # phase 7 (2026-09-20 evening): bash only, no index, rounds (<=4 commands/message), 32k context + 24 message caps instead of a
     # call cap, forced final answer, grep self-healing, trimmed prompt, reward v3 (correctness first; efficiency on the token
     # sum joins at step 8). Held-out keeps the v2 formula. Launch with CODEQA_ARM_STEPS=24 CODEQA_ARM_EVAL_EVERY=8.
+    # phase 8 (2026-09-20 17:00): fork of p6_bash_v3 at step 24 (CODEQA_ARM_FORK_FROM). Same harness, roomier context (48k) with fewer
+    # messages (16), efficiency weight 0.30 on a 120k budget, 16 groups/step, async sampling 1 step off-policy, 32 sandboxes.
+    # Prompt tells the model about find -exec / absolute paths; sandbox timeouts get a hint. Batch offset 24: unseen tasks only.
+    "bash_v4": ("bash_v3", {"CODEQA_BASH_EXECUTOR": "modal", "CODEQA_MODAL_SANDBOXES": "32", "CODEQA_BASH_HEAL": "1",
+                            "CODEQA_CAPS_CONTEXT": "48000", "CODEQA_CAPS_MESSAGES": "16", "CODEQA_CAPS_COMMANDS": "4",
+                            "CODEQA_REWARD": "v3", "CODEQA_EFF_WEIGHT": "0.30", "CODEQA_EFF_WEIGHT_FROM_STEP": "0",
+                            "CODEQA_EFF_TOKEN_BUDGET": "120000", "CODEQA_ARM_GROUNDED_CREDIT": "0", "CODEQA_SEEN_PIPELINES": "1",
+                            "CODEQA_ARM_GROUPS": "16", "CODEQA_ASYNC_OFF_POLICY": "1", "CODEQA_BATCH_OFFSET": "24",
+                            "CODEQA_ARM_FORK_FROM": "p6_bash_v3", "CODEQA_ARM_STEPS": "40", "CODEQA_ARM_EVAL_EVERY": "8"}, 40),
     "bash_v3": ("bash_v3", {"CODEQA_BASH_EXECUTOR": "modal", "CODEQA_MODAL_SANDBOXES": "16", "CODEQA_BASH_HEAL": "1",
                             "CODEQA_CAPS_CONTEXT": "32000", "CODEQA_CAPS_MESSAGES": "24", "CODEQA_CAPS_COMMANDS": "4",
                             "CODEQA_REWARD": "v3", "CODEQA_EFF_WEIGHT": "0.15", "CODEQA_EFF_WEIGHT_FROM_STEP": "8",
@@ -122,8 +131,15 @@ def main() -> int:
     if (paths.LOGS / run / "checkpoints.jsonl").exists():          # resuming: the "first" evaluator call is not step 0 -> do not skip it
         os.environ["CODEQA_SKIP_FIRST_EVAL"] = "0"
     _start_watchdog(run, minutes=int(os.environ.get("CODEQA_STALL_MINUTES", "40")))
+    fork_args: list[str] = []
+    parent = os.environ.get("CODEQA_ARM_FORK_FROM")               # fork: start from the parent run's final weights (fresh optimizer)
+    if parent and not (paths.LOGS / run / "checkpoints.jsonl").exists():
+        precs = [json.loads(l) for l in open(paths.LOGS / parent / "checkpoints.jsonl") if l.strip()]
+        pck = next((r for r in precs if r.get("name") == "final" and r.get("state_path")), None) or next(r for r in reversed(precs) if r.get("state_path"))
+        fork_args = ["--load-checkpoint", pck["state_path"]]
+        print(f"[arm] forking from {parent} batch {pck.get('batch')}: {pck['state_path']}", flush=True)
     from codeqa.trainer import run as trainer
-    rc = trainer.main([*common(), "--run-name", run, "--steps", str(steps)])
+    rc = trainer.main([*common(), "--run-name", run, "--steps", str(steps), *fork_args])
     if rc:
         print(f"[arm] training failed rc={rc}", flush=True); return rc
 

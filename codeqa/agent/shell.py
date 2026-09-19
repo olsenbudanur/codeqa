@@ -149,8 +149,16 @@ HEAL_LITERAL_NOTE = "(the pattern was not a valid regex; showing literal matches
 HEAL_ICASE_NOTE = "(no exact matches; showing case-insensitive matches)\n"
 
 
+# The product serves several checkpoints from one process, so the v3 knobs can also be set per asyncio task
+# (contextvars) instead of process-wide; None = fall back to the environment (training and CLIs set the env).
+import contextvars as _cv
+HEAL_OVERRIDE: _cv.ContextVar[bool | None] = _cv.ContextVar("codeqa_bash_heal", default=None)
+PIPELINES_OVERRIDE: _cv.ContextVar[bool | None] = _cv.ContextVar("codeqa_seen_pipelines", default=None)
+
+
 def heal_enabled() -> bool:
-    return os.environ.get("CODEQA_BASH_HEAL", "0") == "1"
+    o = HEAL_OVERRIDE.get()
+    return o if o is not None else os.environ.get("CODEQA_BASH_HEAL", "0") == "1"
 
 
 def _split_first_segment(command: str) -> tuple[str, str]:
@@ -222,13 +230,16 @@ async def _exec(command: str, cwd: Path, timeout: float, cap: int, repo_id: str 
     if EXECUTOR == "modal":
         from codeqa.agent import modal_shell
         return await modal_shell.run_rc(command, repo_id or cwd.name, timeout, cap)
-    argv = [BASH, "-r", "-c", command]
+    # Restricted bash forbids every redirection, so the one idiom the precheck allows (`2>/dev/null`) is honoured
+    # here instead: strip it and drop stderr. Same output as on the Modal executor, where the redirect runs as written.
+    drop_stderr = bool(STDERR_NULL.search(command))
+    argv = [BASH, "-r", "-c", STDERR_NULL.sub("", command) if drop_stderr else command]
     if sandbox_exec_works():
         argv = [SANDBOX_EXEC, "-p", _sandbox_profile(cwd)] + argv
     env = {"PATH": str(allowlist_dir()), "LC_ALL": "C", "HOME": "/nonexistent", "TERM": "dumb"}
     try:
-        proc = await asyncio.create_subprocess_exec(*argv, cwd=str(cwd), env=env,
-                                                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
+        proc = await asyncio.create_subprocess_exec(*argv, cwd=str(cwd), env=env, stdout=asyncio.subprocess.PIPE,
+                                                    stderr=asyncio.subprocess.DEVNULL if drop_stderr else asyncio.subprocess.STDOUT)
         out, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
     except asyncio.TimeoutError:
         try:
@@ -305,7 +316,8 @@ _STAGE_SED = re.compile(r"^\s*sed\s+-n\s+['\"]?(\d+),(\d+)p['\"]?\s*$")
 def pipelines_enabled() -> bool:
     """CODEQA_SEEN_PIPELINES=1 (v3 harness): `cat FILE | head -150 | tail -30` style reads of ONE file register the lines
     they print, like the plain forms below. Off by default so the phase-6 arms keep one grounding rule."""
-    return os.environ.get("CODEQA_SEEN_PIPELINES", "0") == "1"
+    o = PIPELINES_OVERRIDE.get()
+    return o if o is not None else os.environ.get("CODEQA_SEEN_PIPELINES", "0") == "1"
 
 
 def _pipeline_span(command: str, output: str, single: str, n_lines: int) -> Span | None:

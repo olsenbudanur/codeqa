@@ -120,7 +120,7 @@ async def run_episode(env: RepoEnv, client: ModelClient, on_event: OnEvent = Non
             outputs: list[tuple[Any, str]] = []
             for i, tc in enumerate(calls):
                 tc.call_id = tc.call_id or f"call_{turn}_{i}"
-                await _emit(on_event, "tool_call", name=tc.name, args=tc.args, why=_first_sentence(msg.thinking))
+                await _emit(on_event, "tool_call", name=tc.name, args=tc.args, why=_first_sentence(msg.thinking), turn=turn)
                 tool = tools.get(tc.name)
                 if tool is None:
                     env.tools_obj.calls += 1
@@ -143,9 +143,13 @@ async def run_episode(env: RepoEnv, client: ModelClient, on_event: OnEvent = Non
                 await _emit(on_event, "tool_result", name=tc.name, summary=text.splitlines()[0][:160] if text else "", chars=len(text),
                             error=text.startswith("ERROR"))
             if rounds_mode:
+                # what the trailer told the model, as an event (the UI shows the budget while the episode runs)
+                await _emit(on_event, "budget", context_tokens=context_tokens, context_cap=budget.max_context_tokens,
+                            messages_left=budget.max_turns - turn, turn=turn)
                 if rounds.should_force(context_tokens, budget.max_context_tokens, turn, budget.max_turns):
                     messages.append(Message(role="user", content=rounds.FORCED_PROMPT))
                     forced = True
+                    await _emit(on_event, "notice", kind="forced_answer", text=rounds.FORCED_PROMPT)
                 continue
             if dropped:
                 # a plain user message: it answers no tool_use, so it must not be a tool-role message (Anthropic rejects
@@ -170,7 +174,8 @@ async def run_episode(env: RepoEnv, client: ModelClient, on_event: OnEvent = Non
         await _emit(on_event, "answer", markdown=answer)
         await _emit(on_event, "citations", items=citation_items(answer, stats.files_read, known_paths))
     await _emit(on_event, "stats", tool_calls=stats.tool_calls, tool_errors=stats.tool_errors, prompt_tokens=stats.prompt_tokens,
-                completion_tokens=stats.completion_tokens, seconds=stats.seconds, stop_reason=stop, turns=stats.turns)
+                completion_tokens=stats.completion_tokens, seconds=stats.seconds, stop_reason=stop, turns=stats.turns,
+                forced_answer=stats.forced_answer)
     await _emit(on_event, "done")
     return trace
 

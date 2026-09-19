@@ -13,13 +13,13 @@ export function useEpisode() {
     dispatch({ type: 'abort' })
   }, [])
 
-  const ask = useCallback(async (question: string, repoId: string, profile: string, taskType?: TaskType) => {
+  const ask = useCallback(async (question: string, repoId: string, profile: string, taskType?: TaskType, variant?: string) => {
     abortRef.current?.abort()
     const ctrl = new AbortController()
     abortRef.current = ctrl
     dispatch({ type: 'start', question, repoId, profile })
     try {
-      for await (const event of api.ask({ repo_id: repoId, question, profile, task_type: taskType }, ctrl.signal)) {
+      for await (const event of api.ask({ repo_id: repoId, question, profile, task_type: taskType, variant }, ctrl.signal)) {
         if (ctrl.signal.aborted) return
         dispatch({ type: 'event', event })
       }

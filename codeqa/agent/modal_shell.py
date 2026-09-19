@@ -70,6 +70,8 @@ async def run_rc(command: str, repo_id: str, timeout: float, cap: int) -> tuple[
             text = out + (("\n" + err) if err.strip() else "")
             if len(text) > cap:
                 text = text[:cap] + f"\n(output truncated to {cap} chars; narrow the command, e.g. add | head -50 or a line range)"
+            if rc == -1 and not text.strip():                    # the sandbox killed it at the time limit
+                text = f"(command timed out after {timeout:.0f}s; narrow it: add a path, --include, or | head)"
             return text.rstrip("\n"), rc, None
         except asyncio.TimeoutError:
             return "", None, f"timeout after {timeout:.0f}s; narrow the command"

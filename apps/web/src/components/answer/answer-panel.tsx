@@ -104,6 +104,7 @@ export function AnswerPanel({ episode, onOpen, compact, bare, unchecked }: { epi
       {stats && (
         <dl className={cn('flex flex-wrap gap-x-6 gap-y-2 font-mono text-xs text-muted-foreground tabular-nums', bare ? 'mt-4' : 'mt-6 border-t pt-3')}>
           <Stat label="tool calls" value={String(stats.tool_calls)} />
+          {stats.forced_answer && <Stat label="final answer" value="forced when the budget ran out" />}
           <Stat label="prompt tokens" value={fmt.format(stats.prompt_tokens)} />
           <Stat label="completion tokens" value={fmt.format(stats.completion_tokens)} />
           {/* training rollouts record no wall time (seconds is null there), so the time stats only show when known */}

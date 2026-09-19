@@ -221,8 +221,10 @@ async function post<T>(path: string, body: unknown): Promise<T> {
 
 export const workshop = {
   repoOverview: (id: string) => get<RepoOverview>(`/repos/${encodeURIComponent(id)}/overview`),
-  repoTools: (id: string) => get<{ tools: ToolSpec[]; caps: Record<string, number> }>(`/repos/${encodeURIComponent(id)}/tools`),
-  runTool: (id: string, name: string, args: Record<string, unknown>) => post<ToolRun>(`/repos/${encodeURIComponent(id)}/tool`, { name, args }),
+  repoTools: (id: string, variant?: string) =>
+    get<{ tools: ToolSpec[]; caps: Record<string, number>; variant: string; variants: string[] }>(`/repos/${encodeURIComponent(id)}/tools`, variant ? { variant } : undefined),
+  runTool: (id: string, name: string, args: Record<string, unknown>, variant?: string) =>
+    post<ToolRun>(`/repos/${encodeURIComponent(id)}/tool`, variant ? { name, args, variant } : { name, args }),
   runs: () => get<RunRow[]>('/runs'),
   run: (name: string) => get<RunDetail>(`/runs/${encodeURIComponent(name)}`),
   iteration: (name: string, n: number) => get<Iteration>(`/runs/${encodeURIComponent(name)}/iterations/${n}`),

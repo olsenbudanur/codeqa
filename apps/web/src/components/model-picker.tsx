@@ -29,6 +29,11 @@ export function ModelPicker({
                   <span className="flex flex-col">
                     <span>{src === 'checkpoints' ? p.name : (p.label ?? p.name)}</span>
                     {p.note && <span className="text-xs text-muted-foreground">{p.note.replace(' (checkpoint)', '')}</span>}
+                    {p.variant && p.variant !== 'default' && (
+                      <span className="font-mono text-[11px] text-muted-foreground">
+                        {p.variant} agent{p.harness?.rounds ? `: rounds, ${Math.round(p.harness.context_tokens / 1000)}k context, ${p.harness.messages} messages` : p.tools ? `: ${p.tools.join(', ')}` : ''}
+                      </span>
+                    )}
                   </span>
                 </SelectItem>
               ))}

@@ -143,12 +143,12 @@ export function LivePage({ requested }: { requested: string | null }) {
             <MetricChart
               data={rows}
               height={320}
-              yDomain={[0, 'auto']}
+              fit={{ pad: 0.05, step: 0.05, min: 0, max: 'auto' }}
               series={[
                 { key: 'reward_band', label: '±1 s.e.', color: SERIES[0], kind: 'band', follows: 'reward' },
                 { key: 'reward', label: 'reward', color: SERIES[0], hidden: true },
                 { key: 'reward_smooth', label: '5-step mean', color: SERIES[0], kind: 'dashed' },
-                { key: 'eval_reward', label: 'held-out', color: SERIES[2], kind: 'points' },
+                { key: 'eval_reward', label: 'held-out', color: SERIES[2], kind: 'markers', hidden: true },
               ]}
             />
             <div className="mt-3 flex flex-wrap gap-6 border-t pt-3">
@@ -173,33 +173,33 @@ export function LivePage({ requested }: { requested: string | null }) {
               <MetricChart
                 data={rows}
                 height={150}
-                yDomain={[0, 1]}
+                fit={{ pad: 0.05, step: 0.05, min: 0, max: 1 }}
                 yFormat={fmtPct}
                 series={[
                   { key: 'correct', label: 'correct', color: SERIES[1], hidden: true },
                   { key: 'correct_smooth', label: '5-step mean', color: SERIES[1], kind: 'dashed' },
-                  { key: 'eval_correct', label: 'held-out', color: SERIES[2], kind: 'points' },
+                  { key: 'eval_correct', label: 'held-out', color: SERIES[2], kind: 'markers', hidden: true },
                 ]}
               />
               <MetricChart
                 data={rows}
                 height={150}
-                yDomain={[0, 'auto']}
+                fit={{ padFrac: 0.15, min: 0, max: 'auto' }}
                 series={[
                   { key: 'tool_calls', label: 'tool calls', color: SERIES[3], hidden: true },
                   { key: 'tool_calls_smooth', label: '5-step mean', color: SERIES[3], kind: 'dashed' },
-                  { key: 'eval_tool_calls', label: 'held-out', color: SERIES[2], kind: 'points' },
+                  { key: 'eval_tool_calls', label: 'held-out', color: SERIES[2], kind: 'markers', hidden: true },
                 ]}
               />
               <MetricChart
                 data={rows}
                 height={150}
-                yDomain={[0, 'auto']}
+                fit={{ padFrac: 0.15, min: 0, max: 'auto' }}
                 yFormat={fmtTokens}
                 series={[
                   { key: 'prompt_tokens', label: 'prompt tokens', color: SERIES[4], hidden: true },
                   { key: 'prompt_tokens_smooth', label: '5-step mean', color: SERIES[4], kind: 'dashed' },
-                  { key: 'eval_prompt_tokens', label: 'held-out', color: SERIES[2], kind: 'points' },
+                  { key: 'eval_prompt_tokens', label: 'held-out', color: SERIES[2], kind: 'markers', hidden: true },
                 ]}
               />
             </Panel>

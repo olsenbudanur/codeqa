@@ -64,6 +64,9 @@ export function Transcript({ episode, onOpen, className }: { episode: Episode; o
               </>
             ) : (
               <>
+                {running && episode.budget && (
+                  <p className="mb-1.5 font-mono text-[11.5px] text-muted-foreground">context {fmtK(episode.budget.context_tokens)} of {fmtK(episode.budget.context_cap)}, {episode.budget.messages_left} {episode.budget.messages_left === 1 ? 'message' : 'messages'} left</p>
+                )}
                 <Activity rows={episode.rows} running={running} onOpen={onOpen} />
                 {episode.status === 'error' && (
                   <p role="alert" className="row-in mt-3 flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-[13px]">
@@ -89,12 +92,15 @@ const VERBS: Record<ToolRow['name'], [string, string]> = {
   grep: ['Searching for', 'Searched for'],
   list_dir: ['Listing', 'Listed'],
   overview: ['Getting the repository overview', 'Got the repository overview'],
+  bash: ['Running', 'Ran'],
 }
 
-function describe(r: ToolRow): { text: string; span?: Span } {
+function describe(r: ToolRow): { text: string; span?: Span; code?: string } {
   const a = r.args
   const v = VERBS[r.name][r.result ? 1 : 0]
   switch (r.name) {
+    case 'bash':
+      return { text: v, code: String(a.command ?? '') }
     case 'read_file': {
       const path = String(a.path ?? '')
       const start = Number(a.start ?? 1)
@@ -111,6 +117,8 @@ function describe(r: ToolRow): { text: string; span?: Span } {
       return { text: v }
   }
 }
+
+const fmtK = (n: number) => `${Math.round(n / 1000)}k`
 
 function resultNote(r: ToolRow): string {
   if (r.name === 'read_file') {
@@ -146,13 +154,23 @@ function Activity({ rows, running, onOpen, className }: { rows: LogRow[]; runnin
             </li>
           )
         }
+        if (r.kind === 'notice') {
+          return (
+            <li key={r.id} className="row-in flex items-start gap-2 text-[13px] leading-5">
+              <span className="mt-[5px] size-3.5 shrink-0" aria-hidden />
+              <span className="text-unverified">Budget exhausted: the harness asked for the final answer.</span>
+            </li>
+          )
+        }
         const d = describe(r)
         const pending = !r.result
         return (
           <li key={r.id} className="row-in flex items-start gap-2 text-[13px] leading-5">
             <Dot pending={pending} running={running} />
             <span className="min-w-0">
-              {d.span ? (
+              {d.code !== undefined ? (
+                <span>{d.text} <code className="rounded bg-muted px-1 py-0.5 font-mono text-[12px] break-all">{d.code}</code></span>
+              ) : d.span ? (
                 <button type="button" onClick={() => onOpen(d.span!)} className="text-left underline-offset-2 hover:underline">
                   {d.text}
                 </button>

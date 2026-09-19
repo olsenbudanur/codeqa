@@ -293,7 +293,9 @@ class EndpointProfile(BaseModel):
 # C9: product stream events
 # ---------------------------------------------------------------------------
 
-EventType = Literal["thinking", "tool_call", "tool_result", "answer", "citations", "stats", "done", "error"]
+# `budget` and `notice` (2026-09-20, v3 round harness): the remaining-budget trailer after a round and the forced
+# final-answer turn, so a UI can show the rounds the way the model experienced them. Additive; consumers may ignore them.
+EventType = Literal["thinking", "tool_call", "tool_result", "budget", "notice", "answer", "citations", "stats", "done", "error"]
 
 
 class SSEEvent(BaseModel):

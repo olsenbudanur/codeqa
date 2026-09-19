@@ -91,6 +91,8 @@ const PACE: Record<SSEEvent['type'], number> = {
   thinking: 420,
   tool_call: 180,
   tool_result: 380,
+  budget: 40,
+  notice: 200,
   answer: 260,
   citations: 120,
   stats: 60,

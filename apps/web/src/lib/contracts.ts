@@ -34,10 +34,14 @@ export interface Profile {
   note?: string
   source?: 'profiles.yaml' | 'checkpoints'
   default?: boolean
+  // the agent this profile is served with (tinker profiles): tools, and the round harness caps for bash_v3
+  variant?: string
+  tools?: string[]
+  harness?: { rounds: boolean; context_tokens: number; messages: number; commands_per_message: number }
 }
 
 // C9 · product stream events
-export type ToolName = 'overview' | 'find_symbol' | 'grep' | 'read_file' | 'list_dir'
+export type ToolName = 'overview' | 'find_symbol' | 'grep' | 'read_file' | 'list_dir' | 'bash'
 
 export interface CitationItem {
   path: string
@@ -49,11 +53,14 @@ export interface CitationItem {
 // `t` = seconds since the episode started, stamped by the API on every event (optional; the driver itself does not send it).
 export type SSEEvent =
   | { type: 'thinking'; text: string; t?: number }
-  | { type: 'tool_call'; name: ToolName; args: Record<string, unknown>; why?: string; t?: number }
+  | { type: 'tool_call'; name: ToolName; args: Record<string, unknown>; why?: string; turn?: number; t?: number }
   | { type: 'tool_result'; name: ToolName; summary: string; chars: number; text?: string; t?: number }
+  // v3 round harness (bash_v3): the remaining budget the model was told after a round, and the forced final turn
+  | { type: 'budget'; context_tokens: number; context_cap: number; messages_left: number; turn: number; t?: number }
+  | { type: 'notice'; kind: 'forced_answer' | string; text: string; t?: number }
   | { type: 'answer'; markdown: string; t?: number }
   | { type: 'citations'; items: CitationItem[]; format_ok?: boolean; format_reason?: string; t?: number }
-  | { type: 'stats'; tool_calls: number; prompt_tokens: number; completion_tokens: number; seconds: number | null; model_seconds?: number; tool_seconds?: number; t?: number }
+  | { type: 'stats'; tool_calls: number; prompt_tokens: number; completion_tokens: number; seconds: number | null; model_seconds?: number; tool_seconds?: number; forced_answer?: boolean; t?: number }
   | { type: 'done' }
   | { type: 'error'; message: string }
 
@@ -64,6 +71,7 @@ export interface AskRequest {
   question: string
   profile: string
   task_type?: TaskType
+  variant?: string // run under this agent harness instead of the profile's own (compare: every column on one harness)
 }
 
 export interface Suggestion {

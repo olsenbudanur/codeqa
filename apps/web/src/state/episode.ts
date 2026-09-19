@@ -8,6 +8,7 @@ export interface ToolRow {
   why?: string
   result?: { summary: string; chars: number; text?: string; seconds?: number }
   startedAt?: number // seconds since episode start (from the API's `t`)
+  turn?: number // the assistant turn this call came from; several calls per turn = one round (bash_v3)
 }
 
 export interface ThinkingRow {
@@ -16,7 +17,15 @@ export interface ThinkingRow {
   text: string
 }
 
-export type LogRow = ToolRow | ThinkingRow
+// A message the harness injected (today: the forced final-answer turn when the round budget ran out).
+export interface NoticeRow {
+  kind: 'notice'
+  id: number
+  notice: string
+  text: string
+}
+
+export type LogRow = ToolRow | ThinkingRow | NoticeRow
 
 export type EpisodeStatus = 'idle' | 'running' | 'done' | 'error'
 
@@ -28,8 +37,9 @@ export interface Episode {
   rows: LogRow[]
   answer?: string
   citations?: CitationItem[]
-  stats?: { tool_calls: number; prompt_tokens: number; completion_tokens: number; seconds: number | null; model_seconds?: number; tool_seconds?: number }
+  stats?: { tool_calls: number; prompt_tokens: number; completion_tokens: number; seconds: number | null; model_seconds?: number; tool_seconds?: number; forced_answer?: boolean }
   format?: { ok: boolean; reason: string }
+  budget?: { context_tokens: number; context_cap: number; messages_left: number; turn: number } // last round's trailer (bash_v3)
   error?: string
   startedAt?: number
 }
@@ -74,12 +84,13 @@ function applyEvent(state: Episode, ev: SSEEvent): Episode {
     case 'tool_call':
       return {
         ...state,
-        rows: [...state.rows, { kind: 'call', id: nextId++, name: ev.name, args: ev.args, why: ev.why, startedAt: ev.t }],
+        rows: [...state.rows, { kind: 'call', id: nextId++, name: ev.name, args: ev.args, why: ev.why, startedAt: ev.t, turn: ev.turn }],
       }
     case 'tool_result': {
-      // Attach to the last unanswered call with the same tool name.
+      // Attach to the first unanswered call with the same tool name: the driver runs a round's calls in order and
+      // emits their results in the same order, so several open `bash` calls resolve first-in first-out.
       const rows = [...state.rows]
-      for (let i = rows.length - 1; i >= 0; i--) {
+      for (let i = 0; i < rows.length; i++) {
         const r = rows[i]
         if (r.kind === 'call' && r.name === ev.name && !r.result) {
           const seconds = ev.t !== undefined && r.startedAt !== undefined ? Math.max(0, ev.t - r.startedAt) : undefined
@@ -89,6 +100,10 @@ function applyEvent(state: Episode, ev: SSEEvent): Episode {
       }
       return { ...state, rows }
     }
+    case 'budget':
+      return { ...state, budget: { context_tokens: ev.context_tokens, context_cap: ev.context_cap, messages_left: ev.messages_left, turn: ev.turn } }
+    case 'notice':
+      return { ...state, rows: [...state.rows, { kind: 'notice', id: nextId++, notice: ev.kind, text: ev.text }] }
     case 'answer':
       return { ...state, answer: ev.markdown }
     case 'citations':

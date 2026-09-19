@@ -64,3 +64,34 @@ def test_judge_streams_research_then_one_verdict_per_candidate(client: TestClien
 def test_judge_requires_password_and_known_repo(client: TestClient) -> None:
     assert TestClient(client.app).post("/judge", json={"repo_id": REPO_ID, "question": "q", "candidates": [{"label": "a", "answer": "x"}]}).status_code == 401
     assert client.post("/judge", json={"repo_id": "x__y__0000000", "question": "q", "candidates": [{"label": "a", "answer": "x"}]}).status_code == 404
+
+
+def test_judge_grades_each_candidate_with_the_training_grader(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A candidate whose /ask trace is on disk gets a `grade` frame from the real grader (reference = the referee's
+    answer, KeywordJudge stands in for the rubric judge); a candidate without a trace gets an error frame."""
+    import apps.api.judge as judge
+    from codeqa.grader.judge import KeywordJudge
+    from codeqa.shared import paths
+    from codeqa.shared.contracts import Trace, TraceStats, Span
+
+    q = "What does line two say?"
+    tid = judge.adhoc_task_id(REPO_ID, q)
+    d = paths.TRACES / "product"
+    d.mkdir(parents=True, exist_ok=True)
+    good = Trace(task_id=tid, profile="good-model", messages=[Message(role="assistant", content="Line two says so [pkg/mod.py:L2-L3].", usage={"prompt_tokens": 100, "completion_tokens": 20})],
+                 stats=TraceStats(tool_calls=1, files_read=[Span(path="pkg/mod.py", start=1, end=5)], stop_reason="answer", turns=2), answer="Line two says so [pkg/mod.py:L2-L3].")
+    (d / f"{tid}__good-model.json").write_text(good.model_dump_json())
+    monkeypatch.setattr(judge, "default_client", lambda model: KeywordJudge(), raising=False)
+    import codeqa.grader.judge as gj
+    monkeypatch.setattr(gj, "default_client", lambda model=None: KeywordJudge())
+
+    body = {"repo_id": REPO_ID, "question": q, "variant": "bash_v3",
+            "candidates": [{"label": "good", "profile": "good-model", "answer": good.answer, "citations": [{"path": "pkg/mod.py", "start": 2, "end": 3, "verified": True}]},
+                           {"label": "bad", "answer": "Trust me.", "citations": []}]}
+    with client.stream("POST", "/judge", json=body) as r:
+        frames = read_sse(r.read().decode())
+    grades = {f["index"]: f for f in frames if f["type"] == "grade"}
+    assert set(grades) == {0, 1}
+    assert grades[0]["reward"] is not None and grades[0]["components"]["citations_grounded"] == 1.0 and grades[0]["gate_failed"] is None
+    assert "no profile" in grades[1]["error"]
+    assert client.post("/judge", json={**body, "variant": "nope"}).status_code == 400

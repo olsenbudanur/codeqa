@@ -32,9 +32,9 @@ from codeqa.agent.env import RepoEnv
 from codeqa.clients.base import ModelClient, make_client
 from codeqa.grader.citations import check_citations
 from codeqa.grader.gates import citations_parse_gate, format_gate
-from apps.api.workshop import read_json, read_jsonl
+from apps.api.workshop import read_json, read_jsonl, run_titles
 from codeqa.shared import paths
-from codeqa.shared.contracts import EndpointProfile, SSEEvent, TaskType
+from codeqa.shared.contracts import DEFAULT_BUDGETS, UNLIMITED_CALLS, EndpointProfile, SSEEvent, TaskType
 from codeqa.shared.profiles import load_profiles
 
 TRACE_RUN = os.environ.get("CODEQA_TRACE_RUN", "product")
@@ -88,8 +88,19 @@ def checkpoint_profiles() -> dict[str, EndpointProfile]:
                 continue
             key_env = "TINKER_API_KEY_NEW" if run.name.startswith(SECOND_ORG_RUN_PREFIXES) and os.environ.get("TINKER_API_KEY_NEW") else None
             out[name] = EndpointProfile(name=name, kind="tinker", model=sp, base_model=base, renderer=cfg.get("renderer_name") or "qwen3_5",
-                                        max_context=32768, max_generation_tokens=int(cfg.get("max_tokens") or 2048), api_key_env=key_env)
+                                        max_context=32768, max_generation_tokens=int(cfg.get("max_tokens") or 2048), api_key_env=key_env,
+                                        variant=run_variant(run.name, cfg))
     return out
+
+
+def run_variant(run: str, cfg: dict[str, Any]) -> str | None:
+    """The agent a run trained with: `runs.json` (the lead's titles file) first, then config.json. A checkpoint must be
+    served with the tools, prompt and budget it trained on; None = the default variant."""
+    v = (run_titles().get(run) or {}).get("variant") or cfg.get("variant")
+    return v if v and v != "none" else None
+
+
+from apps.api.harness import V3_COMMANDS, V3_CONTEXT_TOKENS, V3_MESSAGES, V3_VARIANTS, apply_harness_knobs, harness_budget, harness_row, is_v3  # noqa: E402,F401
 
 
 def all_profiles() -> dict[str, EndpointProfile]:
@@ -183,6 +194,14 @@ async def ensure_tinker_alive(name: str, profile: EndpointProfile) -> ModelClien
         return client
     rebuild_sampling_client(name)
     return await client_for(name)
+
+
+def record_adhoc(task_id: str, repo_id: str, question: str, task_type: str, profile: str) -> None:
+    """Product traces carry only a hashed task id; this sidecar lets the Workshop find the repo (and so check citations)."""
+    p = paths.TRACES / TRACE_RUN / "adhoc.jsonl"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with p.open("a") as f:
+        f.write(json.dumps({"task_id": task_id, "repo_id": repo_id, "question": question, "task_type": task_type, "profile": profile}) + "\n")
 
 
 async def _warm_clients() -> None:
@@ -298,9 +317,18 @@ def get_file(repo_id: str, path: str, start: int | None = Query(None, ge=1), end
 _STEP_RE = re.compile(r"^qwen4b-(?P<run>.+)-step(?P<step>\d+|final)$")
 
 
+# Named product models: a trained checkpoint promoted out of the checkpoint list with a name, like a release.
+# "Scholia": the marginal notes of ancient scholars, each one citing the line of the text it comments on.
+NAMED_MODELS: dict[str, tuple[str, str]] = {
+    "scholia-bash-v3": ("Scholia 4B (bash_v3)", "bash agent, rounds harness, trained 24 steps"),
+}
+
+
 def profile_row(p: EndpointProfile, from_checkpoints: bool = False) -> dict[str, Any]:
     label, note = p.model, ""
-    if p.kind == "anthropic":
+    if p.name in NAMED_MODELS:
+        label, note = NAMED_MODELS[p.name]
+    elif p.kind == "anthropic":
         label = {"claude-sonnet-5": "Claude Sonnet 5", "claude-haiku-4-5-20251001": "Claude Haiku 4.5"}.get(p.model, p.model)
         note = "teacher" if "sonnet" in p.model else "judge"
     elif p.kind == "tinker":
@@ -313,8 +341,12 @@ def profile_row(p: EndpointProfile, from_checkpoints: bool = False) -> dict[str,
         label, note = "Qwen3.5-4B, served", "vLLM on Modal"
     if from_checkpoints:
         note = f"{note} (checkpoint)" if note else "checkpoint"
+    if p.kind == "tinker":
+        row_extra = harness_row(p)
+    else:
+        row_extra = {}
     return {"name": p.name, "kind": p.kind, "model": p.model, "label": label, "note": note, "source": "checkpoints" if from_checkpoints else "profiles.yaml",
-            "default": p.name == DEFAULT_PROFILE}
+            "default": p.name == DEFAULT_PROFILE, **row_extra}
 
 
 @app.get("/profiles")
@@ -334,6 +366,9 @@ class Ask(BaseModel):
     profile: str
     task_type: TaskType = "explain"
     temperature: float = Field(0.7, ge=0.0, le=2.0)
+    # Run this ask under a given agent harness (tools, prompt, budget) instead of the profile's own, e.g. every column
+    # of a comparison on Scholia's bash_v3 harness. None = the profile's variant.
+    variant: str | None = None
 
 
 def _frame(ev: SSEEvent) -> str:
@@ -375,7 +410,9 @@ async def episode_events(req: Ask) -> AsyncIterator[SSEEvent]:
     async def run() -> None:
         try:
             profile = resolve_profile(req.profile)
-            env = RepoEnv.from_question(req.repo_id, req.question, profile, task_type=req.task_type)
+            apply_harness_knobs(profile, req.variant)
+            env = RepoEnv.from_question(req.repo_id, req.question, profile, task_type=req.task_type,
+                                        budget=harness_budget(profile, req.task_type, req.variant), variant=req.variant)
             client = await ensure_tinker_alive(req.profile, profile)
             clock["t0"] = time.time()
             timing["mark"] = 0.0
@@ -384,7 +421,8 @@ async def episode_events(req: Ask) -> AsyncIterator[SSEEvent]:
                 # Tinker ended the session under us (heartbeats missed, or ended from the console). Nothing was
                 # answered on the old one, so open a fresh session and run the same episode once more.
                 reset_tinker_session()
-                env = RepoEnv.from_question(req.repo_id, req.question, profile, task_type=req.task_type)
+                env = RepoEnv.from_question(req.repo_id, req.question, profile, task_type=req.task_type,
+                                            budget=harness_budget(profile, req.task_type, req.variant), variant=req.variant)
                 client = await client_for(req.profile)
                 clock["t0"] = time.time()
                 timing.update(model=0.0, tools=0.0, mark=0.0, open_call=None)
@@ -405,6 +443,7 @@ async def episode_events(req: Ask) -> AsyncIterator[SSEEvent]:
             if profile.kind == "tinker" and trace.stats.stop_reason != "error":
                 mark_tinker_ok(req.profile)
             out = save_trace(trace, run=TRACE_RUN)
+            record_adhoc(trace.task_id, req.repo_id, req.question, req.task_type, req.profile)
             log(f"[api] ask {req.profile} {req.repo_id}: {trace.stats.tool_calls} calls, {trace.stats.seconds}s, stop={trace.stats.stop_reason} -> {out}")
         except FileNotFoundError as e:
             await queue.put(SSEEvent(type="error", payload={"message": f"Repository is not indexed: {e}"}))
@@ -437,6 +476,10 @@ async def post_ask(req: Ask) -> StreamingResponse:
         raise HTTPException(404, f"unknown or unindexed repo {req.repo_id}")
     if req.profile not in all_profiles():
         raise HTTPException(404, f"unknown profile {req.profile}")
+    if req.variant:
+        from codeqa.agent.variants import VARIANTS
+        if req.variant not in VARIANTS:
+            raise HTTPException(400, f"unknown variant {req.variant!r}; one of {', '.join(VARIANTS)}")
 
     async def body() -> AsyncIterator[str]:
         async for ev in episode_events(req):

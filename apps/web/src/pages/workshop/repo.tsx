@@ -156,9 +156,18 @@ function ToolConsole({ repoId, onOpen }: { repoId: string; onOpen: (s: Span) => 
   const [busy, setBusy] = useState(false)
   const [runs, setRuns] = useState<ToolRun[]>([])
   const [error, setError] = useState<string | null>(null)
+  // Which agent's tool set: the default (lean) agent, or e.g. bash_v3, whose only tool is the read-only shell.
+  const [variant, setVariant] = useState<string>('default')
+  const [variants, setVariants] = useState<string[]>([])
   useEffect(() => {
-    workshop.repoTools(repoId).then((r) => { setSpecs(r.tools); setCaps(r.caps) }).catch((e: Error) => setError(e.message))
-  }, [repoId])
+    workshop.repoTools(repoId, variant).then((r) => {
+      setSpecs(r.tools)
+      setCaps(r.caps)
+      setVariants(r.variants ?? [])
+      if (!r.tools.some((t) => t.name === tool)) { setTool(r.tools[0]?.name ?? ''); setArgs({}) }
+    }).catch((e: Error) => setError(e.message))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [repoId, variant])
   const spec = specs.find((s) => s.name === tool)
 
   const fieldType = (p: ToolSpec['parameters']['properties'][string]) => p.type ?? p.anyOf?.find((x) => x.type !== 'null')?.type ?? 'string'
@@ -175,7 +184,7 @@ function ToolConsole({ repoId, onOpen }: { repoId: string; onOpen: (s: Span) => 
     setBusy(true)
     setError(null)
     try {
-      const r = await workshop.runTool(repoId, tool, built)
+      const r = await workshop.runTool(repoId, tool, built, variant)
       setRuns((rs) => [r, ...rs].slice(0, 30))
     } catch (err) {
       setError((err as Error).message)
@@ -187,6 +196,14 @@ function ToolConsole({ repoId, onOpen }: { repoId: string; onOpen: (s: Span) => 
   return (
     <div className="grid gap-4 lg:grid-cols-[360px_minmax(0,1fr)]">
       <Panel title="Call a tool" aside="as the agent would">
+        {variants.length > 1 && (
+          <label className="mb-3 block text-[12px]">
+            <span className="font-mono">agent</span>
+            <select value={variant} onChange={(e) => setVariant(e.target.value)} className="mt-1 h-8 w-full rounded-md border bg-background px-2 font-mono text-[12.5px]">
+              {variants.map((v) => <option key={v} value={v}>{v}</option>)}
+            </select>
+          </label>
+        )}
         <div className="mb-3 flex flex-wrap gap-1.5">
           {specs.map((s) => (
             <button key={s.name} type="button" onClick={() => { setTool(s.name); setArgs({}) }} className={cn('rounded-full border px-2.5 py-1 font-mono text-[12px]', tool === s.name ? 'border-foreground bg-foreground text-background' : 'text-muted-foreground hover:text-foreground')}>

@@ -238,9 +238,9 @@ export function EfficiencyPanel({ rows }: { rows: MetricRow[] }) {
             <MetricChart
               data={rows}
               height={220}
-              legend={false}
-              yDomain={[0, 'auto']}
-              series={[{ key: it.key, label: 'train', color: SERIES[0] }, ...(it.ev && has(rows, it.ev) ? [{ key: it.ev, label: 'held-out', color: SERIES[2], kind: 'points' as const }] : [])]}
+              legend={!!(it.ev && has(rows, it.ev))}
+              fit={{ padFrac: 0.15, min: 0, max: 'auto' }}
+              series={[{ key: it.key, label: 'train', color: SERIES[0] }, ...(it.ev && has(rows, it.ev) ? [{ key: it.ev, label: 'held-out', color: SERIES[2], kind: 'markers' as const, hidden: true }] : [])]}
             />
           </div>
         ))}
@@ -360,7 +360,13 @@ export function HeldOutPanel({ rows, compact }: { rows: MetricRow[]; compact?: b
             .map((c) => (
               <div key={c.key}>
                 <p className="mb-1 text-[13px]">{c.label}</p>
-                <MetricChart data={evalRows} height={220} legend={false} yDomain={c.domain ?? [0, 'auto']} series={[{ key: c.key, label: 'held-out', color: SERIES[2] }]} />
+                <MetricChart
+                  data={evalRows}
+                  height={220}
+                  legend={false}
+                  fit={c.domain ? { pad: 0.05, step: 0.05, min: 0, max: 1 } : { padFrac: 0.15, min: 0, max: 'auto' }}
+                  series={[{ key: c.key, label: 'held-out', color: SERIES[2], kind: 'markers' }]}   // the panel's only series stays visible
+                />
               </div>
             ))}
         </div>
@@ -368,3 +374,4 @@ export function HeldOutPanel({ rows, compact }: { rows: MetricRow[]; compact?: b
     </Panel>
   )
 }
+

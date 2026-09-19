@@ -34,3 +34,26 @@ describe('episode reducer over the recorded C9 stream', () => {
     expect(s.error).toBe('boom')
   })
 })
+
+describe('rounds (bash_v3)', () => {
+  it('attaches results first-in first-out when a round has several calls of the same tool', () => {
+    let ep = episodeReducer(emptyEpisode, { type: 'start', question: 'q', repoId: 'r', profile: 'p' })
+    ep = episodeReducer(ep, { type: 'event', event: { type: 'tool_call', name: 'bash', args: { command: 'ls' }, turn: 1 } })
+    ep = episodeReducer(ep, { type: 'event', event: { type: 'tool_call', name: 'bash', args: { command: 'grep -rn x .' }, turn: 1 } })
+    ep = episodeReducer(ep, { type: 'event', event: { type: 'tool_result', name: 'bash', summary: 'a.py', chars: 4 } })
+    ep = episodeReducer(ep, { type: 'event', event: { type: 'tool_result', name: 'bash', summary: 'a.py:3: x', chars: 9 } })
+    const calls = ep.rows.filter((r) => r.kind === 'call')
+    expect(calls.map((c) => c.kind === 'call' && c.result?.summary)).toEqual(['a.py', 'a.py:3: x'])
+    expect(calls.map((c) => c.kind === 'call' && c.turn)).toEqual([1, 1])
+  })
+
+  it('keeps the last budget trailer and records the forced-answer notice as a row', () => {
+    let ep = episodeReducer(emptyEpisode, { type: 'start', question: 'q', repoId: 'r', profile: 'p' })
+    ep = episodeReducer(ep, { type: 'event', event: { type: 'budget', context_tokens: 12000, context_cap: 32000, messages_left: 20, turn: 4 } })
+    ep = episodeReducer(ep, { type: 'event', event: { type: 'notice', kind: 'forced_answer', text: '[Budget exhausted: ...]' } })
+    ep = episodeReducer(ep, { type: 'event', event: { type: 'stats', tool_calls: 9, prompt_tokens: 1, completion_tokens: 1, seconds: 3, forced_answer: true } })
+    expect(ep.budget).toEqual({ context_tokens: 12000, context_cap: 32000, messages_left: 20, turn: 4 })
+    expect(ep.rows.at(-1)).toMatchObject({ kind: 'notice', notice: 'forced_answer' })
+    expect(ep.stats?.forced_answer).toBe(true)
+  })
+})

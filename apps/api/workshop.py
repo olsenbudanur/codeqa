@@ -141,7 +141,7 @@ def _final_eval(name: str) -> tuple[Path | None, dict[str, Any]]:
     return hits[-1], (d.get("summary") or d)
 
 
-def _run_metrics(name: str) -> list[dict[str, Any]]:
+def _own_metrics(name: str) -> list[dict[str, Any]]:
     p = run_dir(name) / "metrics.jsonl"
     fe_path, fe = _final_eval(name)
 
@@ -163,6 +163,23 @@ def _run_metrics(name: str) -> list[dict[str, Any]]:
     return cached(f"metrics:{name}:{_mtime(fe_path) if fe_path else 0}", p, build)
 
 
+def _run_metrics(name: str) -> list[dict[str, Any]]:
+    """A fork (runs.json `fork_of`) draws on its parent's graph: the parent's rows first (its final-eval point kept, since the
+    fork's own step 0 held-out re-measures the same weights), then the fork's rows shifted by the parent's step count."""
+    own = _own_metrics(name)
+    meta = run_titles().get(name, {})
+    parent = meta.get("fork_of") if isinstance(meta, dict) else None
+    if not parent or not (run_dir(parent) / "metrics.jsonl").exists():
+        return own
+    prows = _own_metrics(parent)
+    offset = sum(1 for r in prows if any(k.startswith("env/") for k in r))
+    shifted = []
+    for r in own:
+        q = dict(r); q["step"] = int(q.get("step", 0)) + offset; q["fork"] = 1.0
+        shifted.append(q)
+    return [dict(r, parent=1.0) for r in prows] + shifted
+
+
 def run_row(name: str) -> dict[str, Any] | None:
     d = run_dir(name)
     cfg_p, met_p = d / "config.json", d / "metrics.jsonl"
@@ -182,7 +199,9 @@ def run_row(name: str) -> dict[str, Any] | None:
         "variant": meta.get("variant"),
         "planned_steps": planned,
         "reward_setting": meta.get("reward"),
-        "steps": sum(1 for r in rows if any(k.startswith("env/") for k in r)),    # training rows only (a final-eval row carries no env/ keys)
+        "steps": sum(1 for r in rows if any(k.startswith("env/") for k in r)),    # training rows only (a final-eval row carries no env/ keys); a fork counts its parent's too
+        "fork_of": meta.get("fork_of"),
+        "own_steps": sum(1 for r in _own_metrics(name) if any(k.startswith("env/") for k in r)),
         "started": _mtime(cfg_p) if cfg_p.exists() else None,
         "updated": last if last > 0 else None,
         "live": last > 0 and _is_live(name, len(rows), last, planned),
@@ -506,23 +525,29 @@ def _task_index() -> dict[str, dict[str, Any]]:
 
 def trace_events(trace: Trace) -> list[dict[str, Any]]:
     """C9 events reconstructed from a C6 trace, so the UI can replay it through the same reducer."""
+    from codeqa.agent.rounds import FORCED_MARK
     ev: list[dict[str, Any]] = []
+    turn = 0
     for m in trace.messages:
         if m.role == "assistant":
+            turn += 1
             if m.thinking:
                 ev.append({"type": "thinking", "text": m.thinking})
             if m.parse_error:
                 ev.append({"type": "error", "message": m.parse_error[:300]})
             for tc in m.tool_calls:
-                ev.append({"type": "tool_call", "name": tc.name, "args": tc.args})
+                ev.append({"type": "tool_call", "name": tc.name, "args": tc.args, "turn": turn})   # turn: rounds (bash_v3)
         elif m.role == "tool" and m.name not in (None, "budget"):
             text = m.content or ""
             ev.append({"type": "tool_result", "name": m.name, "summary": text.splitlines()[0][:160] if text else "", "chars": len(text), "text": text[:4000]})
+        elif m.role == "user" and (m.content or "").startswith(FORCED_MARK):
+            ev.append({"type": "notice", "kind": "forced_answer", "text": m.content})
     if trace.answer:
         ev.append({"type": "answer", "markdown": trace.answer})
     st = trace.stats
     ev.append({"type": "stats", "tool_calls": st.tool_calls, "tool_errors": st.tool_errors, "prompt_tokens": st.prompt_tokens,
-               "completion_tokens": st.completion_tokens, "seconds": st.seconds, "stop_reason": st.stop_reason, "turns": st.turns})
+               "completion_tokens": st.completion_tokens, "seconds": st.seconds, "stop_reason": st.stop_reason, "turns": st.turns,
+               "forced_answer": bool(getattr(st, "forced_answer", False))})
     ev.append({"type": "done"})
     return ev
 
@@ -543,7 +568,7 @@ def rollout_events(r: dict[str, Any]) -> list[dict[str, Any]]:
                 parsed = json.loads(args)
             except ValueError:
                 parsed = {"raw": args}
-            ev.append({"type": "tool_call", "name": name, "args": parsed})
+            ev.append({"type": "tool_call", "name": name, "args": parsed, "turn": int(st.get("step_idx", 0)) + 1})
             res = str(logs.get("tool_result_" + k.split("_")[-1], ""))
             ev.append({"type": "tool_result", "name": name, "summary": res.splitlines()[0][:160] if res else "", "chars": len(res), "text": res[:4000]})
         if content and not calls:
@@ -780,8 +805,17 @@ def _repo_ids() -> list[str]:
     return sorted(p.name for p in paths.REPOS.iterdir() if p.is_dir()) if paths.REPOS.exists() else []
 
 
+def _adhoc_index() -> dict[str, dict[str, Any]]:
+    """Product asks recorded by the API (`data/traces/product/adhoc.jsonl`): task id -> repo, question, type."""
+    p = paths.TRACES / "product" / "adhoc.jsonl"
+    return cached("adhoc.jsonl", p, lambda: {r["task_id"]: r for r in read_jsonl(p)})
+
+
 def _repo_from_task_id(task_id: str) -> str:
-    # adhoc product traces: task id carries no repo; fall back to the only repo whose files the trace names later. Best effort: flask.
+    rec = _adhoc_index().get(task_id)
+    if rec:
+        return rec["repo_id"]
+    # older adhoc traces without a sidecar row: best effort by repo name in the id
     for rid in _repo_ids():
         if rid.split("__")[1].lower() in task_id.lower():
             return rid
@@ -861,13 +895,19 @@ def repo_overview(repo_id: str) -> dict[str, Any]:
 
 
 @router.get("/repos/{repo_id}/tools")
-def repo_tool_specs(repo_id: str) -> dict[str, Any]:
+def repo_tool_specs(repo_id: str, variant: str | None = None) -> dict[str, Any]:
+    """The tools of one agent variant (default: the default variant), so the console can drive the bash harness too."""
     if not (paths.repo_dir(repo_id) / "manifest.json").exists():
         raise HTTPException(404, f"unknown repo {repo_id}")
     t = repo_tools(repo_id)
     caps = t.caps
-    from codeqa.agent.variants import resolve as resolve_variant
-    return {"tools": t.specs(resolve_variant(None).tools), "variant": resolve_variant(None).name, "caps": {k: getattr(caps, k) for k in dir(caps) if not k.startswith("_") and isinstance(getattr(caps, k), (int, float))}}
+    from codeqa.agent.variants import VARIANTS, resolve as resolve_variant
+    try:
+        v = resolve_variant(variant or None)
+    except KeyError:
+        raise HTTPException(400, f"unknown variant {variant!r}; one of {', '.join(VARIANTS)}")
+    return {"tools": t.specs(v.tools), "variant": v.name, "variants": list(VARIANTS),
+            "caps": {k: getattr(caps, k) for k in dir(caps) if not k.startswith("_") and isinstance(getattr(caps, k), (int, float))}}
 
 
 from pydantic import BaseModel as _BaseModel  # noqa: E402
@@ -876,6 +916,7 @@ from pydantic import BaseModel as _BaseModel  # noqa: E402
 class ToolCallBody(_BaseModel):
     name: str
     args: dict[str, Any] = {}
+    variant: str | None = None   # which agent's tool set the name is resolved in (bash lives only in the bash variants)
 
 
 @router.post("/repos/{repo_id}/tool")
@@ -886,7 +927,8 @@ async def run_tool(repo_id: str, body: ToolCallBody) -> dict[str, Any]:
     if not (paths.repo_dir(repo_id) / "manifest.json").exists():
         raise HTTPException(404, f"unknown repo {repo_id}")
     t = repo_tools(repo_id)
-    tools = {x.name: x for x in t.tools()}
+    from codeqa.agent.variants import resolve as resolve_variant
+    tools = {x.name: x for x in t.tools(resolve_variant(body.variant or None).tools)}
     if body.name not in tools:
         raise HTTPException(400, f"unknown tool {body.name!r}; one of {', '.join(tools)}")
     # The console is stateless: no call budget, and files_read is per call.

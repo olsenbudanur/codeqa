@@ -160,6 +160,7 @@ class CodeQADataset(RLDataset):
         self.batches_per_epoch = max(math.ceil(len(builders) / batch_size), 1) if builders else 0
 
     def get_batch(self, index: int) -> Sequence[EnvGroupBuilder]:
+        index += int(os.environ.get("CODEQA_BATCH_OFFSET", "0"))    # a fork of a finished run skips the batches its parent saw
         i = index % max(self.batches_per_epoch, 1)
         batch = self.builders[i * self.batch_size:(i + 1) * self.batch_size]
         self._write_groups(index, batch)

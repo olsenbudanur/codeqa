@@ -182,7 +182,7 @@ function RunDetailPage({ name, overlay }: { name: string; overlay: string[] }) {
     { key: 'reward_band', label: '±1 s.e.', color: SERIES[0], kind: 'band', follows: 'reward' },
     { key: 'reward', label: `${name} reward`, color: SERIES[0], kind: 'line', hidden: true },
     { key: 'reward_smooth', label: '5-step mean', color: SERIES[0], kind: 'dashed' },
-    { key: 'eval_reward', label: 'held-out (fast)', color: SERIES[2], kind: 'points' },
+    { key: 'eval_reward', label: 'held-out', color: SERIES[2], kind: 'markers', hidden: true },
     ...others.flatMap((o, i) => [
       { key: `o${i}_reward`, label: `${o.name} reward`, color: SERIES[[1, 3, 4, 6, 7][i % 5]], kind: 'line' as const, hidden: true },
       { key: `o${i}_smooth`, label: `${o.name} 5-step mean`, color: SERIES[[1, 3, 4, 6, 7][i % 5]], kind: 'dashed' as const },
@@ -194,26 +194,26 @@ function RunDetailPage({ name, overlay }: { name: string; overlay: string[] }) {
   const correctSeries: Series[] = [
     { key: 'correct', label: `${name} correct`, color: SERIES[1], kind: 'line', hidden: true },
     { key: 'correct_smooth', label: '5-step mean', color: SERIES[1], kind: 'dashed' },
-    { key: 'eval_correct', label: 'held-out (fast)', color: SERIES[2], kind: 'points' },
+    { key: 'eval_correct', label: 'held-out', color: SERIES[2], kind: 'markers', hidden: true },
     ...others.map((o, i) => ({ key: `o${i}_correct`, label: `${o.name} correct`, color: SERIES[OVERLAY_COLORS[(i + 1) % 5]], kind: 'line' as const })),
   ]
   const callsSeries: Series[] = [
     { key: 'tool_calls', label: `${name} tool calls`, color: SERIES[3], kind: 'line', hidden: true },
     { key: 'tool_calls_smooth', label: '5-step mean', color: SERIES[3], kind: 'dashed' },
-    { key: 'eval_tool_calls', label: 'held-out (fast)', color: SERIES[2], kind: 'points' },
+    { key: 'eval_tool_calls', label: 'held-out', color: SERIES[2], kind: 'markers', hidden: true },
     ...others.map((o, i) => ({ key: `o${i}_tool_calls`, label: `${o.name} tool calls`, color: SERIES[OVERLAY_COLORS[(i + 2) % 5]], kind: 'line' as const })),
   ]
 
   const promptSeries: Series[] = [
     { key: 'prompt_tokens', label: `${name} prompt tokens`, color: SERIES[4], kind: 'line', hidden: true },
     { key: 'prompt_tokens_smooth', label: '5-step mean', color: SERIES[4], kind: 'dashed' },
-    { key: 'eval_prompt_tokens', label: 'held-out (fast)', color: SERIES[2], kind: 'points' },
+    { key: 'eval_prompt_tokens', label: 'held-out', color: SERIES[2], kind: 'markers', hidden: true },
     ...others.map((o, i) => ({ key: `o${i}_prompt_tokens`, label: `${o.name} prompt tokens`, color: SERIES[OVERLAY_COLORS[(i + 3) % 5]], kind: 'line' as const, hidden: true })),
   ]
   const completionSeries: Series[] = [
     { key: 'completion_tokens', label: `${name} generated`, color: SERIES[6], kind: 'line', hidden: true },
     { key: 'completion_tokens_smooth', label: '5-step mean', color: SERIES[6], kind: 'dashed' },
-    { key: 'eval_completion_tokens', label: 'held-out (fast)', color: SERIES[2], kind: 'points' },
+    { key: 'eval_completion_tokens', label: 'held-out', color: SERIES[2], kind: 'markers', hidden: true },
   ]
 
   return (
@@ -255,7 +255,7 @@ function RunDetailPage({ name, overlay }: { name: string; overlay: string[] }) {
       {run && (
         <div className="space-y-4">
           <Panel title="Reward growth" aside={`${run.steps} steps, ${run.config.group_size ?? '?'} × ${run.config.groups_per_batch ?? '?'} episodes per step`}>
-            <MetricChart data={merged} series={rewardSeries} height={380} yDomain={[0, 'auto']} />
+            <MetricChart data={merged} series={rewardSeries} height={380} fit={{ pad: 0.05, step: 0.05, min: 0, max: 'auto' }} />
             <div className="mt-4 flex flex-wrap items-end gap-8 border-t pt-4">
               <Stat
                 label={`gain, last ${p.lastN} vs previous ${p.prevN} steps`}
@@ -288,22 +288,22 @@ function RunDetailPage({ name, overlay }: { name: string; overlay: string[] }) {
             </div>
           </Panel>
           <div className="grid gap-4">
-            <Panel title="Correctness per step" aside="share of episodes judged correct; held-out as points">
-              <MetricChart data={merged} series={correctSeries} height={380} yDomain={[0, 1]} yFormat={fmtPct} />
+            <Panel title="Correctness per step" aside="share of episodes judged correct; the held-out set is a different task mix, read each line against itself">
+              <MetricChart data={merged} series={correctSeries} height={380} fit={{ pad: 0.05, step: 0.05, min: 0, max: 1 }} yFormat={fmtPct} />
               <div className="mt-3 flex flex-wrap gap-6 border-t pt-3">
                 <Stat label="last step" value={rows.at(-1)?.correct !== null && rows.at(-1)?.correct !== undefined ? fmtPct(rows.at(-1)!.correct as number) : '–'} />
                 <Stat label="best step" value={(() => { const b = rows.reduce<MetricRow | null>((acc, m) => (m.correct !== null && m.correct !== undefined && (!acc || (m.correct as number) > (acc.correct as number)) ? m : acc), null); return b ? `${fmtPct(b.correct as number)} @ ${b.step}` : '–' })()} />
               </div>
             </Panel>
             <Panel title="Tool calls per step" aside="mean tool calls per episode; held-out as points">
-              <MetricChart data={merged} series={callsSeries} height={380} yDomain={[0, 'auto']} />
+              <MetricChart data={merged} series={callsSeries} height={380} fit={{ padFrac: 0.15, min: 0, max: 'auto' }} />
               <div className="mt-3 flex flex-wrap gap-6 border-t pt-3">
                 <Stat label="last step" value={fmtNum(rows.at(-1)?.tool_calls as number, 2)} />
                 <Stat label="step 0" value={fmtNum(rows[0]?.tool_calls as number, 2)} />
               </div>
             </Panel>
             <Panel title="Prompt tokens per episode" aside="everything the model read across its turns; the cost driver">
-              <MetricChart data={merged} series={promptSeries} height={380} yDomain={[0, 'auto']} yFormat={fmtTokens} />
+              <MetricChart data={merged} series={promptSeries} height={380} fit={{ padFrac: 0.15, min: 0, max: 'auto' }} yFormat={fmtTokens} />
               <div className="mt-3 flex flex-wrap gap-6 border-t pt-3">
                 <Stat label="last step" value={fmtTokens(rows.at(-1)?.prompt_tokens as number)} />
                 <Stat label="step 0" value={fmtTokens(rows[0]?.prompt_tokens as number)} />
@@ -311,7 +311,7 @@ function RunDetailPage({ name, overlay }: { name: string; overlay: string[] }) {
               </div>
             </Panel>
             <Panel title="Generated tokens per episode" aside="thinking, tool calls and the answer">
-              <MetricChart data={merged} series={completionSeries} height={380} yDomain={[0, 'auto']} yFormat={fmtTokens} />
+              <MetricChart data={merged} series={completionSeries} height={380} fit={{ padFrac: 0.15, min: 0, max: 'auto' }} yFormat={fmtTokens} />
               <div className="mt-3 flex flex-wrap gap-6 border-t pt-3">
                 <Stat label="last step" value={fmtTokens(rows.at(-1)?.completion_tokens as number)} />
                 <Stat label="step 0" value={fmtTokens(rows[0]?.completion_tokens as number)} />

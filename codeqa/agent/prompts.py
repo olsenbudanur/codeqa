@@ -63,7 +63,8 @@ Rules:
 - Only lines that appeared in command output WITH their line numbers can be cited (grep -n, nl -ba, cat -n). Citing lines you have not seen fails the answer, even if the claim is right.
 - Budget: you may send at most {max_turns} messages, and the conversation may not grow past {max_context_tokens_k}k tokens. There is no limit on commands: each message may carry up to {max_commands} commands, and independent commands belong in the same message. After every message you are told how much context and how many messages remain. If the budget runs out you get one last message to answer with what you have.
 - Cost is measured in tokens, so a big read costs more than a small one. Narrow with head, a line range, or a file filter.
-- Not allowed: writing files, cd, .., absolute paths, redirection.
+- Not allowed: writing files, cd, pwd, .., absolute paths (start paths from the repository root, never /), redirection, find -exec (use grep -r or find ... | xargs grep).
+- A name can be defined in several files. When a search shows more than one definition, pick the one the question describes.
 - Answer as soon as the evidence is sufficient. To give your final answer, reply without any command. Keep it under {max_answer_tokens} tokens.
 
 Example of a final answer:

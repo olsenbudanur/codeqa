@@ -21,11 +21,13 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from apps.api.harness import apply_harness_knobs, harness_budget
 from codeqa.agent.driver import run_episode, save_trace
 from codeqa.agent.env import RepoEnv
 from codeqa.clients.base import ModelClient, make_client
 from codeqa.grader.judge import strip_markdown, truncate_tokens
-from codeqa.shared.contracts import EndpointProfile, Message, SSEEvent, TaskType
+from codeqa.shared import paths
+from codeqa.shared.contracts import EndpointProfile, Grading, Message, SSEEvent, Task, TaskType, Trace
 
 router = APIRouter()
 
@@ -68,6 +70,7 @@ class Candidate(BaseModel):
     answer: str
     citations: list[CandidateCitation] = Field(default_factory=list)
     tool_calls: int | None = None
+    profile: str | None = None   # the profile that produced the answer; lets the grader load its trace (files read, usage)
 
 
 class JudgeRequest(BaseModel):
@@ -75,6 +78,45 @@ class JudgeRequest(BaseModel):
     question: str = Field(min_length=1, max_length=4000)
     candidates: list[Candidate] = Field(min_length=1, max_length=6)
     task_type: TaskType = "explain"
+    # The referee researches under this agent harness (same as the candidates when the comparison pinned one);
+    # None = the default agent.
+    variant: str | None = None
+
+
+# The training grader, applied to each candidate with the referee's cited answer as the reference: the grader's
+# rubric judge derives the facts a correct answer must state from that reference. Same gates, grounding multiplier
+# and reward formula as the held-out evaluator (reward v2, efficiency off), and the same judge model as phase 4+.
+GRADER_JUDGE_MODEL = os.environ.get("CODEQA_GRADER_JUDGE_MODEL", "claude-sonnet-5")
+
+
+def adhoc_task_id(repo_id: str, question: str) -> str:
+    import hashlib
+    return "adhoc-" + hashlib.sha1(f"{repo_id}\n{question}".encode()).hexdigest()[:10]
+
+
+def candidate_trace(repo_id: str, question: str, profile: str) -> Trace | None:
+    p = paths.TRACES / "product" / f"{adhoc_task_id(repo_id, question)}__{profile}.json"
+    return Trace.model_validate_json(p.read_text()) if p.exists() else None
+
+
+async def grade_candidate(req: JudgeRequest, cand: Candidate, reference: str) -> dict[str, Any]:
+    from codeqa.grader.grade import grade
+    from codeqa.grader.judge import default_client
+    from codeqa.grader.repo import load_repo
+    if not cand.profile:
+        return {"error": "no profile for this column"}
+    trace = candidate_trace(req.repo_id, req.question, cand.profile)
+    if trace is None:
+        return {"error": "no saved trace for this answer"}
+    task = Task(task_id=trace.task_id, repo_id=req.repo_id, split="eval", question=req.question, task_type=req.task_type,
+                source="teacher", grading=Grading(reference_answer=reference))
+    result = await asyncio.wait_for(
+        grade(task, trace, variant="none", judge_client=default_client(GRADER_JUDGE_MODEL), repo=load_repo(req.repo_id), reward="v2"),
+        timeout=90)
+    comps = result.components.model_dump()
+    return {"reward": None if result.reward != result.reward else round(result.reward, 3),   # NaN -> null
+            "components": {k: (None if v != v else round(v, 3)) for k, v in comps.items() if isinstance(v, (int, float))},
+            "gate_failed": result.gate_failed, "notes": result.notes}
 
 
 JUDGE_SYSTEM = """You are the referee for answers to a question about a code repository.
@@ -173,7 +215,9 @@ async def judge_events(req: JudgeRequest) -> AsyncIterator[dict[str, Any]]:
     async def run() -> None:
         try:
             await queue.put({"type": "phase", "phase": "research", "model": JUDGE_MODEL})
-            env = RepoEnv.from_question(req.repo_id, req.question, RESEARCH_PROFILE, task_type=req.task_type)
+            apply_harness_knobs(RESEARCH_PROFILE, req.variant)
+            env = RepoEnv.from_question(req.repo_id, req.question, RESEARCH_PROFILE, task_type=req.task_type,
+                                        budget=harness_budget(RESEARCH_PROFILE, req.task_type, req.variant), variant=req.variant)
             trace = await asyncio.wait_for(run_episode(env, research_client(), on_event, temperature=0.3), timeout=RESEARCH_TIMEOUT)
             save_trace(trace, run="judge")
             log(f"[judge] referee researched in {trace.stats.tool_calls} calls, {trace.stats.seconds}s, stop={trace.stats.stop_reason}")
@@ -189,7 +233,14 @@ async def judge_events(req: JudgeRequest) -> AsyncIterator[dict[str, Any]]:
                 except Exception as e:  # noqa: BLE001
                     await queue.put({"type": "verdict", "index": i, "label": c.label, "error": f"{type(e).__name__}: {e}"[:300]})
 
-            await asyncio.gather(*(one(i, c) for i, c in enumerate(req.candidates)))
+            async def graded(i: int, c: Candidate) -> None:
+                try:
+                    g = await grade_candidate(req, c, trace.answer)
+                except Exception as e:  # noqa: BLE001
+                    g = {"error": f"{type(e).__name__}: {e}"[:300]}
+                await queue.put({"type": "grade", "index": i, "label": c.label, **g})
+
+            await asyncio.gather(*(one(i, c) for i, c in enumerate(req.candidates)), *(graded(i, c) for i, c in enumerate(req.candidates)))
         except FileNotFoundError as e:
             await queue.put({"type": "error", "message": f"Repository is not indexed: {e}"})
         except asyncio.TimeoutError:
@@ -218,6 +269,10 @@ async def post_judge(req: JudgeRequest) -> StreamingResponse:
 
     if repo_summary(req.repo_id) is None:
         raise HTTPException(404, f"unknown or unindexed repo {req.repo_id}")
+    if req.variant:
+        from codeqa.agent.variants import VARIANTS
+        if req.variant not in VARIANTS:
+            raise HTTPException(400, f"unknown variant {req.variant!r}; one of {', '.join(VARIANTS)}")
 
     async def body() -> AsyncIterator[str]:
         async for item in judge_events(req):

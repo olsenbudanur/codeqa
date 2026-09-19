@@ -9,7 +9,7 @@ export interface Series {
   key: string // field on the row
   label: string
   color: string
-  kind?: 'line' | 'points' | 'band' | 'dashed' | 'area'
+  kind?: 'line' | 'points' | 'markers' | 'band' | 'dashed' | 'area' // markers = sparse series drawn as a line through its points
   hidden?: boolean // off until the viewer clicks it in the legend (raw per-step lines default to hidden behind their 5-step mean)
   follows?: string // a band drawn around another series: shown and hidden with it, never listed in the legend
 }
@@ -65,6 +65,7 @@ export function MetricChart({
   legend = true,
   refLines = [],
   yFormat,
+  fit,
 }: {
   data: (MetricRow | Record<string, unknown>)[]
   series: Series[]
@@ -73,6 +74,10 @@ export function MetricChart({
   legend?: boolean
   refLines?: { y: number; label: string }[]
   yFormat?: (v: number) => string
+  // Fit the y range to the series currently shown, recomputed on every legend toggle (hiding train re-ranges around
+  // held-out). Bounded metrics (rates): `pad` and `step` are absolute, `max` fixed. Unbounded ones (calls, tokens):
+  // `padFrac` of the visible range on both ends, `max: 'auto'`. The floor never goes below `min`.
+  fit?: { pad?: number; padFrac?: number; step?: number; min: number; max: number | 'auto' }
 }) {
   // Legend clicks toggle series. State is keyed by series key, so a re-render with the same series keeps the choice.
   const [hidden, setHidden] = useState<Set<string>>(() => new Set(series.filter((s) => s.hidden).map((s) => s.key)))
@@ -85,12 +90,28 @@ export function MetricChart({
       return next
     })
   const visible = series.filter((s) => !isHidden(s))
+  let domain: [number | 'auto', number | 'auto'] = yDomain ?? ['auto', 'auto']
+  if (fit) {
+    let lo = Infinity
+    let hi = -Infinity
+    for (const row of data) for (const s of visible) {
+      const v = (row as Record<string, unknown>)[s.key]
+      if (typeof v === 'number' && Number.isFinite(v)) { if (v < lo) lo = v; if (v > hi) hi = v }
+    }
+    if (lo === Infinity) domain = [fit.min, fit.max]
+    else {
+      const pad = fit.pad ?? (fit.padFrac ?? 0.1) * Math.max(hi - lo, hi * 0.05, 1e-9)
+      const floor = fit.step ? Math.floor((lo - pad) / fit.step) * fit.step : lo - pad
+      const top = fit.step ? Math.ceil((hi + pad) / fit.step) * fit.step : hi + pad
+      domain = [Math.max(fit.min, floor), fit.max === 'auto' ? top : fit.max]
+    }
+  }
   return (
     <ResponsiveContainer width="100%" height={height}>
       <ComposedChart data={data} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
         <CartesianGrid stroke="var(--viz-grid)" vertical={false} />
         <XAxis dataKey="step" tick={tickStyle} axisLine={{ stroke: 'var(--viz-grid)' }} tickLine={false} allowDecimals={false} />
-        <YAxis tick={tickStyle} axisLine={false} tickLine={false} domain={yDomain ?? ['auto', 'auto']} width={52} tickFormatter={(v: number) => (yFormat ? yFormat(v) : fmtSig(v))} />
+        <YAxis tick={tickStyle} axisLine={false} tickLine={false} domain={domain} allowDataOverflow={!!fit} width={52} tickFormatter={(v: number) => (yFormat ? yFormat(v) : fmtSig(v))} />
         <Tooltip content={<TooltipBox series={visible} format={yFormat} />} cursor={{ stroke: 'var(--muted-foreground)', strokeDasharray: '3 3' }} allowEscapeViewBox={{ x: false, y: true }} wrapperStyle={{ zIndex: 50 }} />
         {legend && series.length > 1 && (
           <Legend
@@ -112,6 +133,8 @@ export function MetricChart({
             <Area key={s.key} type="monotone" dataKey={s.key} name={s.label} stackId="a" stroke={s.color} strokeWidth={1} fill={s.color} fillOpacity={0.55} isAnimationActive={false} connectNulls hide={isHidden(s)} />
           ) : s.kind === 'points' ? (
             <Line key={s.key} type="monotone" dataKey={s.key} name={s.label} stroke="none" dot={{ r: 5, fill: s.color, stroke: 'var(--background)', strokeWidth: 2 }} activeDot={{ r: 6 }} isAnimationActive={false} connectNulls={false} hide={isHidden(s)} />
+          ) : s.kind === 'markers' ? (
+            <Line key={s.key} type="linear" dataKey={s.key} name={s.label} stroke={s.color} strokeWidth={2} dot={{ r: 5, fill: s.color, stroke: 'var(--background)', strokeWidth: 2 }} activeDot={{ r: 6 }} isAnimationActive={false} connectNulls hide={isHidden(s)} />
           ) : (
             <Line
               key={s.key}

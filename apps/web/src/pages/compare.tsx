@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { ArrowLeft, CircleAlert, CircleCheck, Gavel, Plus, X } from 'lucide-react'
-import { judge, type Verdict } from '@/lib/judge'
+import { judge, type Grade, type Verdict } from '@/lib/judge'
 import { HAS_API } from '@/lib/workshop'
 import { emptyEpisode, episodeReducer } from '@/state/episode'
 import { BracketSpinner, ScanLine } from '@/components/working'
@@ -45,7 +45,7 @@ export function Compare() {
   const e2 = useEpisode()
   const e3 = useEpisode()
   const eps = [e0, e1, e2, e3].slice(0, cols.length)
-  const [ref, setRef] = useState<{ status: 'idle' | 'research' | 'judging' | 'done' | 'error'; episode: Episode; verdicts: Record<number, Verdict>; error?: string; model?: string; refCalls?: number; refSeconds?: number }>({ status: 'idle', episode: emptyEpisode, verdicts: {} })
+  const [ref, setRef] = useState<{ status: 'idle' | 'research' | 'judging' | 'done' | 'error'; episode: Episode; verdicts: Record<number, Verdict>; grades: Record<number, Grade>; error?: string; model?: string; refCalls?: number; refSeconds?: number }>({ status: 'idle', episode: emptyEpisode, verdicts: {}, grades: {} })
   const judgeAbort = useRef<AbortController | null>(null)
   const [elapsed, setElapsed] = useState(0)
   useEffect(() => {
@@ -84,12 +84,18 @@ export function Compare() {
     }
   }, [repoId])
 
+  // Harness: 'own' = each model runs with the agent it was trained for (or the default); a variant name puts every
+  // column on that agent's tools, prompt and budget, so the comparison is about the model, not the harness.
+  // Defaults to the round harness whenever a v3 model (Scholia) is in the comparison.
+  const v3InCols = cols.some((c) => profiles.find((p) => p.name === c)?.harness?.rounds)
+  const [harnessChoice, setHarnessChoice] = useState<'auto' | 'own' | string>('auto')
+  const harness = harnessChoice === 'auto' ? (v3InCols ? 'bash_v3' : 'own') : harnessChoice
   const ask = (q: string, type?: TaskType) => {
     if (!repoId || cols.some((c) => !c)) return
     setOpenSpan(null)
     judgeAbort.current?.abort()
-    setRef({ status: 'idle', episode: emptyEpisode, verdicts: {} })
-    eps.forEach((e, i) => void e.ask(q, repoId, cols[i], type))
+    setRef({ status: 'idle', episode: emptyEpisode, verdicts: {}, grades: {} })
+    eps.forEach((e, i) => void e.ask(q, repoId, cols[i], type, harness === 'own' ? undefined : harness))
   }
   const stop = () => eps.forEach((e) => e.stop())
   const allAnswered = !idle && !running && eps.every((e) => e.episode.status === 'done' || e.episode.status === 'error')
@@ -100,21 +106,23 @@ export function Compare() {
     judgeAbort.current?.abort()
     const ctrl = new AbortController()
     judgeAbort.current = ctrl
-    setRef({ status: 'research', episode: episodeReducer(emptyEpisode, { type: 'start', question, repoId, profile: 'opus' }), verdicts: {} })
+    setRef({ status: 'research', episode: episodeReducer(emptyEpisode, { type: 'start', question, repoId, profile: 'opus' }), verdicts: {}, grades: {} })
     const candidates = eps.map((e, i) => ({
       label: displayName(profiles, cols[i]),
       answer: e.episode.answer ?? '',
       citations: e.episode.citations ?? [],
       tool_calls: e.episode.stats?.tool_calls,
+      profile: cols[i],
     }))
     try {
-      for await (const f of judge(repoId, question, candidates, ctrl.signal)) {
+      for await (const f of judge(repoId, question, candidates, ctrl.signal, harness === 'own' ? undefined : harness)) {
         if (ctrl.signal.aborted) return
         setRef((r) => {
           if (f.type === 'phase' && f.phase === 'research') return { ...r, status: 'research', model: f.model }
           if (f.type === 'ref') return { ...r, episode: episodeReducer(r.episode, { type: 'event', event: f.event }) }
           if (f.type === 'phase' && f.phase === 'judging') return { ...r, status: 'judging', refCalls: f.ref_calls, refSeconds: f.ref_seconds, episode: episodeReducer(r.episode, { type: 'event', event: { type: 'done' } }) }
           if (f.type === 'verdict') return { ...r, verdicts: { ...r.verdicts, [f.index]: f } }
+          if (f.type === 'grade') return { ...r, grades: { ...r.grades, [f.index]: f } }
           if (f.type === 'error') return { ...r, status: 'error', error: f.message }
           if (f.type === 'done') return { ...r, status: r.status === 'error' ? 'error' : 'done' }
           return r
@@ -187,6 +195,23 @@ export function Compare() {
                       {selected ? repoName(selected) : 'no repository'}
                     </span>
                     <span className="ml-auto truncate">same question to {cols.length} models</span>
+                    <label className="flex shrink-0 items-center gap-1.5">
+                      <span>harness</span>
+                      <select
+                        value={harnessChoice === 'auto' ? harness : harnessChoice}
+                        onChange={(e) => setHarnessChoice(e.target.value)}
+                        disabled={running}
+                        className="h-6 rounded border bg-background px-1 font-mono text-[11.5px]"
+                        aria-label="Agent harness for every column"
+                        title="'own' = each model with the agent it trained for. A variant runs every column on that agent's tools, prompt and budget."
+                      >
+                        <option value="own">each model's own</option>
+                        <option value="bash_v3">bash_v3 (Scholia's)</option>
+                        <option value="bash">bash</option>
+                        <option value="full">full (five tools + map)</option>
+                        <option value="default">lean (four tools)</option>
+                      </select>
+                    </label>
                   </div>
                   <QuestionBox onAsk={ask} onStop={stop} running={running} disabled={!selected} showSamples={idle} samples={samples} bare />
                 </div>
@@ -195,7 +220,7 @@ export function Compare() {
           </div>
           {!idle && (
             <div className="mx-auto w-full max-w-[1400px]">
-              <CompareSummary episodes={eps.map((e) => e.episode)} labels={cols.map((c) => displayName(profiles, c))} judge={ref.status === 'done' || ref.status === 'judging' ? ref.verdicts : undefined} />
+              <CompareSummary episodes={eps.map((e) => e.episode)} labels={cols.map((c) => displayName(profiles, c))} judge={ref.status === 'done' || ref.status === 'judging' ? ref.verdicts : undefined} grades={ref.status === 'done' || ref.status === 'judging' ? ref.grades : undefined} />
             </div>
           )}
           {ref.status !== 'idle' && (
@@ -330,7 +355,7 @@ function displayName(profiles: Profile[], name: string): string {
 }
 
 // Each column against the baseline (first column). Fewer calls, tokens and seconds are better; more verified citations are better.
-function CompareSummary({ episodes, labels, judge: verdicts }: { episodes: Episode[]; labels: string[]; judge?: Record<number, Verdict> }) {
+function CompareSummary({ episodes, labels, judge: verdicts, grades }: { episodes: Episode[]; labels: string[]; judge?: Record<number, Verdict>; grades?: Record<number, Grade> }) {
   const rate = (v: { ok: number; all: number }) => (v.all ? (100 * v.ok) / v.all : 0)
   const verified = (e: Episode) => {
     const items = e.citations ?? []
@@ -351,6 +376,28 @@ function CompareSummary({ episodes, labels, judge: verdicts }: { episodes: Episo
           lowerIsBetter: false,
           eps: 0.5,
         }]
+      : []),
+    ...(grades
+      ? [
+          {
+            label: 'Grader reward',
+            help: 'the training grader on this answer, with the referee\'s cited answer as the reference: gates, then correctness × grounded share (reward v2, as the held-out evaluator scores)',
+            get: (e: Episode) => grades[episodes.indexOf(e)]?.reward ?? undefined,
+            fmt: (n: number) => n.toFixed(2),
+            text: (e: Episode) => { const g = grades[episodes.indexOf(e)]; return g ? (typeof g.reward === 'number' ? `${g.reward.toFixed(2)}${g.gate_failed ? ` (gate: ${g.gate_failed})` : ''}` : g.error ? 'not graded' : 'judge failed') : '' },
+            lowerIsBetter: false,
+            eps: 0.005,
+          },
+          {
+            label: 'Grader correctness',
+            help: 'share of the facts in the reference answer that this answer states, per the grader\'s rubric judge; 0 when a gate fired first',
+            get: (e: Episode) => grades[episodes.indexOf(e)]?.components?.correctness ?? undefined,
+            fmt: (n: number) => `${Math.round(n * 100)}%`,
+            text: (e: Episode) => { const c = grades[episodes.indexOf(e)]?.components?.correctness; return typeof c === 'number' ? `${Math.round(c * 100)}%` : '' },
+            lowerIsBetter: false,
+            eps: 0.005,
+          },
+        ]
       : []),
     {
       label: 'Citations verified',

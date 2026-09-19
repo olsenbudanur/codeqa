@@ -67,6 +67,10 @@ def build_config(spec: RunSpec) -> train.Config:
     # env, drop the group if it fails again (docs/research/modal_stall.md; lead, 2026-09-19).
     from tinker_cookbook.rl.rollout_strategy import RetryOnFailure
     extra.setdefault("rollout_error_tolerance", RetryOnFailure(max_retries=8, per_rollout_timeout=1200))
+    import os
+    if os.environ.get("CODEQA_ASYNC_OFF_POLICY"):          # v4: sample batch N+1 while batch N trains (cookbook AsyncConfig)
+        extra.setdefault("async_config", train.AsyncConfig(max_steps_off_policy=int(os.environ["CODEQA_ASYNC_OFF_POLICY"]),
+                                                            groups_per_batch=spec.groups_per_batch))
     return train.Config(
         model_name=base,
         recipe_name="codeqa_rl",

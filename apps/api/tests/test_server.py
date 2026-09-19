@@ -262,3 +262,74 @@ def test_idle_tinker_client_is_probed_and_rebuilt_on_hang(client: TestClient, mo
     with client.stream("POST", "/ask", json={"repo_id": REPO_ID, "question": "q", "profile": "scripted"}) as r:
         read_sse(r.read().decode())
     assert rebuilt == ["scripted"] and probes == [True]
+
+
+def test_v3_profiles_get_the_round_harness(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A bash_v3 checkpoint is served with the v3 caps (no call cap, context + message caps, several commands per
+    message) and the bash knobs; other variants keep the task type's default budget."""
+    import apps.api.server as server
+    from codeqa.agent import shell
+
+    v3 = server.EndpointProfile(name="qwen4b-p6_bash_v3-step20", kind="tinker", model="tinker://x", base_model="Qwen/Qwen3.5-4B", variant="bash_v3")
+    lean = server.EndpointProfile(name="qwen4b-p6_full-step12", kind="tinker", model="tinker://y", base_model="Qwen/Qwen3.5-4B", variant="full")
+    b = server.harness_budget(v3, "explain")
+    assert b is not None and b.rounds_mode and b.max_tool_calls == server.UNLIMITED_CALLS
+    assert (b.max_context_tokens, b.max_turns, b.max_commands_per_turn) == (server.V3_CONTEXT_TOKENS, server.V3_MESSAGES, server.V3_COMMANDS)
+    assert b.max_answer_tokens == server.DEFAULT_BUDGETS["explain"].max_answer_tokens
+    assert server.harness_budget(lean, "explain") is None
+    server.apply_harness_knobs(v3)
+    assert shell.heal_enabled() and shell.pipelines_enabled()
+    server.apply_harness_knobs(lean)
+    assert not shell.heal_enabled() and not shell.pipelines_enabled()
+    row = server.harness_row(v3)
+    assert row["variant"] == "bash_v3" and row["tools"] == ["bash"] and row["harness"]["rounds"] is True
+
+
+def test_checkpoint_profiles_carry_the_run_variant(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    import apps.api.server as server
+    from apps.api import workshop
+
+    logs = tmp_path / "logs"
+    (logs / "p9_bash_v3").mkdir(parents=True)
+    (logs / "p9_bash_v3" / "checkpoints.jsonl").write_text(json.dumps({"name": "000004", "batch": 4, "sampler_path": "tinker://a/sampler_weights/000004"}) + "\n")
+    (logs / "p9_bash_v3" / "config.json").write_text(json.dumps({"model_name": "Qwen/Qwen3.5-4B", "variant": None}))
+    (logs / "runs.json").write_text(json.dumps({"p9_bash_v3": {"title": "v3", "variant": "bash_v3"}}))
+    monkeypatch.setattr(server.paths, "LOGS", logs)
+    monkeypatch.setattr(workshop.paths, "LOGS", logs)
+    monkeypatch.setattr(server, "load_profiles", lambda: {})
+    profs = server.checkpoint_profiles()
+    assert profs["qwen4b-p9_bash_v3-step4"].variant == "bash_v3"
+
+
+def test_tool_console_takes_a_variant(client: TestClient) -> None:
+    r = client.get(f"/repos/{REPO_ID}/tools", params={"variant": "bash_v3"}).json()
+    assert r["variant"] == "bash_v3" and [t["name"] for t in r["tools"]] == ["bash"] and "default" in r["variants"]
+    assert client.get(f"/repos/{REPO_ID}/tools", params={"variant": "nope"}).status_code == 400
+    r = client.post(f"/repos/{REPO_ID}/tool", json={"name": "bash", "args": {"command": "ls"}, "variant": "bash_v3"})
+    assert r.status_code == 200 and "pkg" in r.json()["output"]
+    r = client.post(f"/repos/{REPO_ID}/tool", json={"name": "bash", "args": {"command": "ls"}})
+    assert r.status_code == 400   # bash is not in the default variant
+
+
+def test_ask_variant_override_puts_any_profile_on_the_v3_harness(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """`variant` on /ask runs the episode under that agent's tools, prompt and budget regardless of the profile."""
+    import apps.api.server as server
+    seen: dict[str, object] = {}
+
+    class Peek(ScriptedClient):
+        async def chat(self, messages, tools=None, max_tokens=None, temperature=1.0):
+            seen["tools"] = [t["name"] for t in (tools or [])]
+            seen["system"] = messages[0].content
+            return Message(role="assistant", content="Answer [pkg/mod.py:L2-L3].", usage={"prompt_tokens": 10, "completion_tokens": 5})
+
+    async def fake(name: str):
+        return Peek(server.EndpointProfile(name="scripted", kind="anthropic", model="scripted"))
+
+    monkeypatch.setattr(server, "client_for", fake)
+    with client.stream("POST", "/ask", json={"repo_id": REPO_ID, "question": "q", "profile": "scripted", "variant": "bash_v3"}) as r:
+        events = read_sse(r.read().decode())
+    assert seen["tools"] == ["bash"]
+    assert "one tool: bash" in str(seen["system"]) and "32k" in str(seen["system"])
+    assert any(e["type"] == "answer" for e in events)
+    r = client.post("/ask", json={"repo_id": REPO_ID, "question": "q", "profile": "scripted", "variant": "nope"})
+    assert r.status_code == 400
