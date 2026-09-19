@@ -52,6 +52,7 @@ ssh ubuntu@<ip> /opt/codeqa/scripts/deploy/update.sh
 - Tinker sampling clients for checkpoint profiles warm for a few seconds; the API creates them at startup (`CODEQA_WARM_CLIENTS=1`, the default). First request after a restart is slower.
 - `data/logs` and `data/traces/product` grow on the box; they are not needed for serving. Rotate or ignore.
 - Never `rsync` the laptop's `.venv`, `node_modules`, or `data/logs`. Never commit `.env`; the deploy copies it by `scp`.
+- Port 22 is open to any source since 2026-09-19 (key-only auth; cloud-init sets `PasswordAuthentication no`). A `/32` rule for the lead's IP failed from a mobile-carrier network even though `checkip.amazonaws.com` returned a stable address: SSH egress differs from HTTPS egress behind carrier NAT. Narrow it again only from a fixed-IP network.
 - macOS `rsync` is old but fine for this; pass `-az`, not `--info` flags it lacks, if it complains.
 
 ## Progress log (append-only)
