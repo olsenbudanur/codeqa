@@ -53,7 +53,7 @@ def _rewrite(argv: list[str]) -> list[str]:
 
 
 @app.function(image=image, volumes={DATA: volume}, secrets=[modal.Secret.from_name(SECRET)],
-              timeout=24 * 3600, cpu=4.0, memory=8192)
+              timeout=24 * 3600, cpu=4.0, memory=16384)   # 16 GB: 128 concurrent envs each hold a repo index (cached per repo since 2026-09-19)
 def job(module: str, argv: list[str], env: dict[str, str] | None = None) -> int:
     """Run `python -m <module> <argv>` in the container; commit the volume periodically and at exit."""
     stop = threading.Event()

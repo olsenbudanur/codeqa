@@ -717,3 +717,40 @@ Entry format:
   Sonnet on the 644 judged train tasks (pre-prune grader): reward 0.76, correct 85 %; on the 232 DeepCodeBench test tasks: reward 0.73, correct 80 % (`data/evals/claude/{train_judged,dcb_test}/`).
 - **Credit balance is dry again** (judge 400 "credit balance is too low", first seen 02:10). Casualties: the Sonnet fast re-grade under the new grounding rule has 39/117 judge NaNs and must be re-run after a top-up; nothing else was mid-flight. Run one is unaffected (verifiable tasks, no judge). Run two on `all.jsonl` needs the judge, so top up before launching it.
 - Affects: lead (top-up; run two from the pruned files), B, talk
+
+## 2026-09-19 07:20 · apps/api · lead (one-line edit in D's file)
+- What: `workshop._is_live` now treats any change in a run's row count as activity, not only growth. After the duplicate-job cleanup the volume sync replaced `p1_full/metrics.jsonl` with a shorter file (3 → 1 rows), and the growth tracker never fired again, so the Live board hid the run. Restarted the API (same command, port 8000) to pick it up.
+- Affects: D (keep the change; the Live board now recovers from file replacements)
+
+## 2026-09-19 07:30 · data hygiene · lead
+- What: smoke run logs moved out of `data/logs/` to `data/archive/logs/` (`smoke`, `smoke1`, `smoke3`, `smoke_lr1e4`, `modal_smoke_train`, `modal_smoke_train_bash`) and the two Modal ones removed from the volume, so the Workshop lists only `run1` and the four phase-1 arms. Nothing else changed: the `qwen4b-smoke1-step3` checkpoint, its profile and manifest record stay (the demo uses it); the collapse/control numbers from `smoke3`/`smoke_lr1e4` are in LOG 16:40/17:30 and the archived files.
+- Affects: D (runs list), C (if you reference smoke logs, they are under data/archive/logs)
+
+## 2026-09-20 04:00 · metrics wording · lane C agent (for D) — "format ok" is misleading on the Live page
+- What the lead saw: "format ok 45-60 %" reads as malformed output. It is not: `format_ok` fails when there is no final answer at all (episode ended at the tool budget or turn limit) or on parse error / overflow / pasted output. In p1_full step 2, 38 of the 43 points of format failure were stalls; malformed output is ~5 %.
+- Please split it into sections, all keys already in metrics.jsonl (under `env/all/`, and `eval/fast/env/all/` for held-out):
+  1. **Answered** = `stop_answer` (share of episodes that produced a final answer). Its complement, **Stalled** = `stalled` (= `stop_budget` + `stop_max_turns`): ran out of tool calls / turns without answering. Show both; "stalled" is the number that should fall first in a healthy run.
+  2. **Malformed** = `stop_parse_error` + `stop_overflow` + `stop_error` (real format problems) — expected to stay near 0.
+  3. **Citations**: `citations_parse` (used bracket citations), `citations_exist` (files real), `citations_grounded` (share of cited lines actually shown; fractional since 2026-09-20).
+  4. **Gate funnel** (why reward was 0): `gate_format` (rename "no answer / malformed"), `gate_citations` ("no or fake citations"), `gate_grounding` ("nothing cited was read"), `gate_budget`, `gate_judge_error`; the remainder reached correctness.
+  5. **Shaping** (training only): `no_answer_penalty` rate, `grounded_credit` rate, `length_factor_applied`, and `reward_shaped` vs `reward`.
+- Wording: replace "format ok" with "answered" everywhere it is a headline; keep "format" only for the malformed bucket.
+- Affects: D (Live/Runs pages), talk figures
+
+## 2026-09-19 07:45 · apps/api · lead (D's file, one constant)
+- What: `workshop.LIVE_SECONDS` 330 → 1200. Under four concurrent jobs a step takes 3–12 min and the sync adds up to 2.5 min, so runs kept dropping off the Live board between steps ("data gone"). The Runs list never filters by liveness; only the Live board does. Also removed one stale `p1_full/iteration_000003` left by the stopped duplicate job (locally and on the volume) that made the chart show a step the metrics did not have.
+- Affects: D (keep both)
+
+## 2026-09-19 08:05 · trainer · lead (question for C)
+- What: the four phase-1 arms run 32 groups × 8 = 256 episodes per step (`config.json` and the builder log: "47 batches of up to 32 groups"), although `scripts/arm.py` passes `--groups-per-batch 16` to `codeqa.trainer.run.main(argv)`. `parse()` looks like it honours the argument. Please check whether anything in `build_config` / the dataset builder / `metrics_patch` widens the batch, or whether the `config.py` default (16 → 32 after your training-file probe) wins somewhere. Not stopping the arms for it: 256 episodes/step is more signal per step; it just doubles the per-step cost the lead quoted (≈ 3.4 M prompt tokens per step instead of 1.7 M) and lengthens steps to 2.5–3.5 min under four-way sharing.
+- Affects: C, lead (cost accounting)
+
+## 2026-09-19 08:10 · trainer · lead — correction to 08:05
+- The 32 groups per batch is the lead's doing: `scripts/arm.py`'s argument list never included `--groups-per-batch`, so the trainer's default (32) applied. Nothing to check in the trainer. The arms stay as they are (256 episodes/step, 32 tasks/step); the cost accounting in this LOG is per 256-episode step.
+- Affects: nobody
+
+## 2026-09-19 08:30 · experiments · lead — phase 1 stopped (preemption), fixes in, relaunch pending
+- What happened: around 19:53–19:58 all four arms stopped sampling (the user's Tinker balance went flat). At 20:06 Modal logged "Container terminated due to preemption. Your Function will be restarted with the same input" for `p1_nogates`; `p1_lean` restarted the same way. A restart re-ran `scripts.arm` from scratch and `--if-exists delete` wiped the run directory. The lead stopped all four at 20:10. Partial data on the volume (bash 5 steps, full 2, lean/nogates reset) will be wiped at relaunch.
+- Fixes (lead's files): `scripts/arm.py` now passes `--groups-per-batch 16` (the earlier arms ran the trainer default 32 = 256 episodes/step by the lead's omission), `--save-every 5` and `--if-exists resume` so a preempted restart continues from the last checkpoint; `apps/trainer/modal_runner.py` gives jobs 16 GB; `codeqa/agent/indexing/{index,snapshot,summaries}.py` cache the loaded index per process keyed by file mtime (a transformers `RepoEnv` now costs 46 ms after the first, and 128 concurrent envs share one parsed index instead of 128 copies).
+- C: `--if-exists resume` on a directory with no checkpoint yet — please confirm it starts from step 0 cleanly rather than failing; the lead wipes the dirs before relaunch regardless.
+- Affects: C (resume semantics), D (runs will reset to step 0 on relaunch), everyone (Tinker idle until the go)

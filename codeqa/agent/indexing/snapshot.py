@@ -51,8 +51,16 @@ def clean(root: Path) -> tuple[list[FileEntry], dict[str, int]]:
     return files, dropped
 
 
+_MANIFEST_CACHE: dict[tuple[str, float], Manifest] = {}
+
+
 def load_manifest(repo_id: str) -> Manifest:
-    return Manifest.model_validate_json((paths.repo_dir(repo_id) / "manifest.json").read_text())
+    p = paths.repo_dir(repo_id) / "manifest.json"
+    key = (repo_id, p.stat().st_mtime)
+    if key not in _MANIFEST_CACHE:
+        _MANIFEST_CACHE.clear() if len(_MANIFEST_CACHE) > 64 else None
+        _MANIFEST_CACHE[key] = Manifest.model_validate_json(p.read_text())
+    return _MANIFEST_CACHE[key]
 
 
 def snapshot(owner: str, repo: str, sha: str, force: bool = False) -> Manifest:

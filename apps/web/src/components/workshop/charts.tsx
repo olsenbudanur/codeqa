@@ -34,16 +34,17 @@ export function fmtSig(v: number | null | undefined): string {
 function TooltipBox({ active, payload, label, series, pct }: { active?: boolean; payload?: { dataKey?: string; value?: unknown; name?: string }[]; label?: unknown; series: Series[]; pct?: boolean }) {
   if (!active || !payload?.length) return null
   return (
-    <div className="rounded-md border bg-popover px-3 py-2.5 font-mono text-[12.5px] shadow-md">
+    <div className="min-w-[220px] rounded-md border bg-popover px-3 py-2.5 font-mono text-[12.5px] shadow-md">
       <div className="mb-1 text-muted-foreground">step {String(label)}</div>
       {series.map((s) => {
         const p = payload.find((x) => x.dataKey === s.key)
         if (!p || p.value === null || p.value === undefined) return null
+        if (pct && typeof p.value === 'number' && Math.round(p.value * 100) === 0) return null   // stacked bars: only reasons that occurred
         const v = Array.isArray(p.value) ? `${fmtSig(p.value[0] as number)}–${fmtSig(p.value[1] as number)}` : pct ? `${Math.round((p.value as number) * 100)}%` : fmtSig(p.value as number)
         return (
           <div key={s.key} className="flex items-center gap-2">
             <span className="size-2 rounded-sm" style={{ background: s.color }} aria-hidden />
-            <span className="text-muted-foreground">{s.label}</span>
+            <span className="whitespace-nowrap text-muted-foreground">{s.label}</span>
             <span className="ml-auto pl-3 text-foreground">{v}</span>
           </div>
         )
@@ -73,7 +74,7 @@ export function MetricChart({
         <CartesianGrid stroke="var(--viz-grid)" vertical={false} />
         <XAxis dataKey="step" tick={tickStyle} axisLine={{ stroke: 'var(--viz-grid)' }} tickLine={false} allowDecimals={false} />
         <YAxis tick={tickStyle} axisLine={false} tickLine={false} domain={yDomain ?? ['auto', 'auto']} width={52} tickFormatter={(v: number) => fmtSig(v)} />
-        <Tooltip content={<TooltipBox series={series} />} cursor={{ stroke: 'var(--muted-foreground)', strokeDasharray: '3 3' }} />
+        <Tooltip content={<TooltipBox series={series} />} cursor={{ stroke: 'var(--muted-foreground)', strokeDasharray: '3 3' }} allowEscapeViewBox={{ x: true, y: true }} wrapperStyle={{ zIndex: 50 }} />
         {legend && series.length > 1 && <Legend iconType="plainline" wrapperStyle={{ fontSize: 11.5, fontFamily: 'var(--font-mono)', color: 'var(--muted-foreground)' }} />}
         {refLines.map((r) => (
           <ReferenceLine key={r.label} y={r.y} stroke="var(--unverified)" strokeDasharray="4 3" label={{ value: r.label, position: 'insideTopRight', fontSize: 10, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }} />
@@ -142,7 +143,7 @@ export function StackedBars({ data, series, height = 200 }: { data: (MetricRow |
         <CartesianGrid stroke="var(--viz-grid)" vertical={false} />
         <XAxis dataKey="step" tick={tickStyle} axisLine={{ stroke: 'var(--viz-grid)' }} tickLine={false} allowDecimals={false} />
         <YAxis tick={tickStyle} axisLine={false} tickLine={false} domain={[0, 1]} width={56} tickFormatter={(v: number) => `${Math.round(v * 100)}%`} />
-        <Tooltip content={<TooltipBox series={series} pct />} cursor={{ fill: 'var(--accent)' }} />
+        <Tooltip content={<TooltipBox series={series} pct />} cursor={{ fill: 'var(--accent)' }} allowEscapeViewBox={{ x: true, y: true }} wrapperStyle={{ zIndex: 50 }} />
         <Legend iconType="square" wrapperStyle={{ fontSize: 11.5, fontFamily: 'var(--font-mono)', color: 'var(--muted-foreground)' }} />
         {series.map((s, i) => (
           <Bar key={s.key} dataKey={s.key} name={s.label} stackId="g" fill={s.color} stroke="var(--background)" strokeWidth={2} isAnimationActive={false} maxBarSize={56} radius={i === series.length - 1 ? [4, 4, 0, 0] : 0} />

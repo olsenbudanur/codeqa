@@ -58,7 +58,16 @@ def build_index(manifest: Manifest) -> list[IndexSymbol]:
     return symbols
 
 
+_SYMBOL_CACHE: dict[tuple[str, float], list[IndexSymbol]] = {}
+
+
 def load_symbols(repo_id: str) -> list[IndexSymbol]:
+    """Cached per process by (repo_id, file mtime): 128 concurrent envs on one repo share one parsed index."""
     import json
-    data = json.loads((paths.index_dir(repo_id) / "symbols.json").read_text())
-    return [IndexSymbol.model_validate(s) for s in data["symbols"]]
+    p = paths.index_dir(repo_id) / "symbols.json"
+    key = (repo_id, p.stat().st_mtime)
+    if key not in _SYMBOL_CACHE:
+        data = json.loads(p.read_text())
+        _SYMBOL_CACHE.clear() if len(_SYMBOL_CACHE) > 64 else None
+        _SYMBOL_CACHE[key] = [IndexSymbol.model_validate(s) for s in data["symbols"]]
+    return _SYMBOL_CACHE[key]

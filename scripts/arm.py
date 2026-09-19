@@ -21,8 +21,9 @@ ARMS = {  # arm -> (variant, extra env, default steps)
 def common() -> list[str]:
     from codeqa.shared import paths   # resolves under CODEQA_DATA_DIR (/data inside the Modal runner)
     return ["--tasks", str(paths.TASKS_TRAIN / "all.jsonl"),     # B6 output: 1,489 tasks in the pass-rate window, 62 % gold-graded "--profile", "qwen4b-base", "--group-size", "8", "--groups-per-batch", "16",
-            "--lr", "1e-4", "--variant", "none", "--eval-tasks", str(paths.TASKS_EVAL / "fast.jsonl"), "--eval-every", "10", "--save-every", "10",
-            "--seed", "0", "--if-exists", "delete"]
+            "--group-size", "8", "--groups-per-batch", "16",
+            "--lr", "1e-4", "--variant", "none", "--eval-tasks", str(paths.TASKS_EVAL / "fast.jsonl"), "--eval-every", "10", "--save-every", "1",     # a save is 3–11 s per step; a preemption then costs one step
+            "--seed", "0", "--if-exists", "resume"]      # resume: Modal restarts a preempted function with the same input (seen 2026-09-19 20:06)
 
 
 def main() -> int:

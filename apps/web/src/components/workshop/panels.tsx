@@ -31,6 +31,16 @@ export function withDerived(run: RunDetail): MetricRow[] {
       reward_band: r !== null && se !== null ? ([r - se, r + se] as unknown as number) : null,
       eval_reward: num(m[EV('reward/total')]) ?? num(m[EV('reward')]),
       stalled: num(m[E('stalled')]) ?? ((num(m[E('stop_budget')]) ?? 0) + (num(m[E('stop_max_turns')]) ?? 0)),
+      // the "format" gate splits by stop reason: ran out of tool calls, ran out of turns, context overflow, bad tool syntax,
+      // and whatever is left (pasted tool output / driver errors)
+      gate_out_of_calls: num(m[E('gate_format')]) !== null ? (num(m[E('stop_budget')]) ?? 0) : null,
+      gate_out_of_turns: num(m[E('gate_format')]) !== null ? (num(m[E('stop_max_turns')]) ?? 0) : null,
+      gate_overflow: num(m[E('gate_format')]) !== null ? (num(m[E('stop_overflow')]) ?? 0) : null,
+      gate_bad_syntax: num(m[E('gate_format')]) !== null ? (num(m[E('stop_parse_error')]) ?? 0) : null,
+      gate_other_format: num(m[E('gate_format')]) !== null
+        ? Math.max(0, (num(m[E('gate_format')]) ?? 0) - (num(m[E('stop_budget')]) ?? 0) - (num(m[E('stop_max_turns')]) ?? 0)
+            - (num(m[E('stop_overflow')]) ?? 0) - (num(m[E('stop_parse_error')]) ?? 0))
+        : null,
       reached_grading: has([m], E('gate_format')) ? Math.max(0, 1 - gates.reduce((a, b) => a + b, 0)) : null,
       tool_calls_per_correct: per(num(m[E('tool_calls')]), correct),
       prompt_tokens_per_correct: per(num(m[E('prompt_tokens')]), correct),
@@ -84,16 +94,19 @@ export function SignalDensityPanel({ rows, compact }: { rows: MetricRow[]; compa
 export function GateFunnelPanel({ rows, compact }: { rows: MetricRow[]; compact?: boolean }) {
   if (!has(rows, E('gate_format'))) return null
   return (
-    <Panel title="Gate funnel" aside="share of episodes stopped at each gate; the rest reached grading">
+    <Panel title="Why episodes scored zero" aside="share of episodes by how they ended before correctness was scored">
       <StackedBars
         data={rows}
-        height={compact ? 200 : 340}
+        height={compact ? 280 : 460}
         series={[
-          { key: E('gate_format'), label: 'format', color: SERIES[1] },
-          { key: E('gate_citations'), label: 'citations', color: SERIES[3] },
-          { key: E('gate_grounding'), label: 'grounding', color: SERIES[4] },
-          { key: E('gate_budget'), label: 'budget', color: SERIES[6] },
-          { key: E('gate_judge_error'), label: 'judge error', color: SERIES[7] },
+          { key: 'gate_out_of_calls', label: 'out of tool calls', color: SERIES[1] },
+          { key: 'gate_out_of_turns', label: 'out of turns', color: SERIES[5] },
+          { key: 'gate_overflow', label: 'context overflow', color: SERIES[0] },
+          { key: 'gate_bad_syntax', label: 'bad tool syntax', color: SERIES[6] },
+          { key: 'gate_other_format', label: 'pasted output', color: SERIES[7] },
+          { key: E('gate_citations'), label: 'no citations', color: SERIES[3] },
+          { key: E('gate_grounding'), label: 'unread citations', color: SERIES[4] },
+          { key: E('gate_judge_error'), label: 'judge down', color: SERIES[5] },
           { key: 'reached_grading', label: 'reached grading', color: SERIES[2] },
         ]}
       />

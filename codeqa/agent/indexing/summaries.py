@@ -38,9 +38,18 @@ def summaries_path(repo_id: str) -> Path:
     return paths.index_dir(repo_id) / "summaries.json"
 
 
+_SUMMARY_CACHE: dict[tuple[str, float], dict[str, str]] = {}
+
+
 def load_summaries(repo_id: str) -> dict[str, str]:
     p = summaries_path(repo_id)
-    return json.loads(p.read_text()) if p.exists() else {}
+    if not p.exists():
+        return {}
+    key = (repo_id, p.stat().st_mtime)
+    if key not in _SUMMARY_CACHE:
+        _SUMMARY_CACHE.clear() if len(_SUMMARY_CACHE) > 64 else None
+        _SUMMARY_CACHE[key] = json.loads(p.read_text())
+    return _SUMMARY_CACHE[key]
 
 
 def _dir_of(path: str) -> str:

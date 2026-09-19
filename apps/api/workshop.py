@@ -81,7 +81,7 @@ def read_json(p: Path, default: Any = None) -> Any:
 
 METRIC_PREFIXES = ("env/", "eval/", "optim/", "progress/", "kl_ref/", "loss/", "time/train_step", "time/total",
                    "time/compute_group_rewards:total", "time/policy_sample:total", "time/env_step:total", "time/run_evaluations_parallel")
-LIVE_SECONDS = 330.0  # logs arrive via a 2-min volume sync plus a 30 s commit; allow for one missed sync
+LIVE_SECONDS = 1200.0  # a step can take 3–12 min when several jobs share Tinker, plus a 2-min sync and a 30 s commit; 330 s blinked runs off the Live board between steps (2026-09-19)
 _growth: dict[str, tuple[int, float]] = {}  # run -> (rows last seen, time the row count last grew)
 
 
@@ -92,7 +92,7 @@ def _is_live(name: str, n_rows: int, mtime: float, planned: int | None) -> bool:
     if seen is None:
         # first sight this process: trust a fresh mtime once
         _growth[name] = (n_rows, mtime if now - mtime < LIVE_SECONDS else 0.0)
-    elif n_rows > seen[0]:
+    elif n_rows != seen[0]:   # any change is activity (a count can drop when the volume sync replaces a file, e.g. after a duplicate job is stopped)
         _growth[name] = (n_rows, now)
     last_growth = _growth[name][1]
     if planned and n_rows >= planned:
