@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
-import { ArrowUp, BookOpen, Crosshair, Mic, MicOff, Route, Square } from 'lucide-react'
+import { ArrowUp, BookOpen, Crosshair, Hash, List, Mic, MicOff, Route, Square } from 'lucide-react'
+import type { Suggestion, TaskType } from '@/lib/contracts'
+
+const KIND_ICON: Record<TaskType, typeof Crosshair> = { locate: Crosshair, value: Hash, enumerate: List, trace: Route, explain: BookOpen }
 import { useDictation } from '@/hooks/use-dictation'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -15,16 +18,20 @@ export function QuestionBox({
   showSamples,
   samples = [],
   bare,
+  samplesAs = 'chips',
+  hideBox,
 }: {
-  onAsk: (q: string) => void
+  onAsk: (q: string, type?: TaskType) => void
   onStop: () => void
   running: boolean
   disabled: boolean
   disabledReason?: string
   initial?: string
   showSamples?: boolean
-  samples?: string[]
+  samples?: Suggestion[]
   bare?: boolean
+  samplesAs?: 'chips' | 'cards'
+  hideBox?: boolean
 }) {
   const [text, setText] = useState(initial ?? '')
   const [interim, setInterim] = useState('')
@@ -60,6 +67,7 @@ export function QuestionBox({
 
   return (
     <div>
+      {!hideBox && (
       <div
         className={cn(
           'relative bg-background transition-[box-shadow,border-color]',
@@ -120,13 +128,45 @@ export function QuestionBox({
           )}
         </div>
       </div>
-      {showSamples !== false && samples.length > 0 && !text && !running && !disabled && (
+      )}
+      {showSamples !== false && samples.length > 0 && !text && !running && !disabled && samplesAs === 'cards' && (
+        <ul className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5" aria-label="Sample questions">
+          {samples.map((s) => {
+            const Icon = KIND_ICON[s.type]
+            const kind = s.type
+            return (
+              <li key={s.question}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (dictation.listening) dictation.stop()
+                    setText('')
+                    setInterim('')
+                    onAsk(s.question, s.type)
+                  }}
+                  className="group flex h-full w-full flex-col gap-2 rounded-xl border bg-background p-3.5 text-left transition-[transform,border-color,box-shadow] hover:-translate-y-0.5 hover:border-verified/50 hover:shadow-[0_8px_24px_-16px_rgba(0,0,0,0.35)]"
+                >
+                  <span className="flex items-center gap-1.5 font-mono text-[11px] text-muted-foreground">
+                    <Icon className="size-3.5 text-verified" aria-hidden />
+                    {kind}
+                  </span>
+                  <span className="text-[13px] leading-5 [overflow-wrap:anywhere]">{s.question}</span>
+                  <span className="mt-auto flex items-center gap-1 pt-1 text-[12px] text-muted-foreground group-hover:text-foreground">
+                    Ask this <ArrowUp className="size-3 rotate-45" aria-hidden />
+                  </span>
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+      {showSamples !== false && samples.length > 0 && !text && !running && !disabled && samplesAs === 'chips' && (
         <ul className={cn('flex flex-wrap gap-1.5', bare ? 'border-t px-3.5 py-3' : 'mt-2.5')} aria-label="Sample questions">
           {bare && <li className="mr-1 self-center text-xs text-muted-foreground">Try</li>}
-          {samples.map((s, i) => {
-            const Icon = [Crosshair, Route, BookOpen][i % 3]
+          {samples.map((s) => {
+            const Icon = KIND_ICON[s.type]
             return (
-              <li key={s}>
+              <li key={s.question}>
                 <button
                   type="button"
                   onClick={() => {
@@ -134,12 +174,12 @@ export function QuestionBox({
                     if (dictation.listening) dictation.stop()
                     setText('')
                     setInterim('')
-                    onAsk(s)
+                    onAsk(s.question, s.type)
                   }}
                   className="group inline-flex max-w-full items-center gap-1.5 rounded-full border bg-background px-3 py-1.5 text-left text-[12.5px] text-muted-foreground transition-[color,border-color,transform] hover:-translate-y-px hover:border-verified/50 hover:text-foreground"
                 >
                   <Icon className="size-3.5 shrink-0 text-verified" aria-hidden />
-                  <span className="truncate">{s}</span>
+                  <span className="truncate">{s.question}</span>
                 </button>
               </li>
             )

@@ -17,7 +17,7 @@ EXPECTED = {
     "good_locate": (None, 1.0),
     "good_value": (None, 1.0),
     "good_enumerate": (None, 1.0),
-    "padded": ("format", 0.0),               # over the answer cap
+    "padded": (None, None),                  # over the answer cap: no longer a gate, reward scaled by cap/len (checked below)
     "wrong": (None, 0.0),                    # verifiable type, judge never consulted, literal mismatch
     "restated": (None, 0.0),                 # passes gates, satisfies no rubric item
     "fabricated": ("citations", 0.0),        # path does not exist
@@ -26,7 +26,7 @@ EXPECTED = {
     "judge_injection": (None, 0.0),          # injected instructions do not move the judge
     "thinking_answer": (None, 0.0),          # the literal lives only in thinking
     "redundant_reads": (None, 1.0),          # grounding fine; efficiency penalized under multiplicative (below)
-    "verbatim": ("format", 0.0),             # copied tool output blows the cap
+    "verbatim": ("format", 0.0),             # copied tool output: verbatim-paste gate
     "tool_errors": ("budget", 0.0),          # 6 errors + 1 read = 7 calls > locate budget of 6
 }
 
@@ -37,7 +37,10 @@ async def test_adversarial_trace_scores_as_intended(name, tasks, trace, repo):
     gate, reward = EXPECTED[name]
     r = await grade(tasks[tr.task_id], tr, judge_client=KeywordJudge(), repo=repo)
     assert r.gate_failed == gate, r.notes
-    assert r.reward == pytest.approx(reward), r.notes
+    if reward is None:
+        assert 0.0 < r.reward < 1.0 and r.components.efficiency < 1.0, r.notes     # padded: correct but scaled down by length
+    else:
+        assert r.reward == pytest.approx(reward), r.notes
 
 
 async def test_wrong_answer_never_reaches_the_judge(tasks, trace, repo):
@@ -80,6 +83,6 @@ async def test_judge_outage_gives_nan_not_zero(tasks, trace, repo):
 
 
 async def test_format_failure_is_zero_never_nan(tasks, trace, repo):
-    tr = trace("padded")
+    tr = trace("verbatim")
     r = await grade(tasks[tr.task_id], tr, judge_client=KeywordJudge(fail=True), repo=repo)
     assert r.reward == 0.0 and r.gate_failed == "format"

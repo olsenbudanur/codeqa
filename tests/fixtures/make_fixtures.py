@@ -52,7 +52,9 @@ def trace(task_id: str, name: str, answer: str, reads: list[tuple[str, int, int]
     msgs = [Message(role="system", content=SYSTEM), Message(role="user", content=f"Repository map (mini):\nsrc/miniapp/ ...\n\nQuestion: {q}")]
     for p, s, e in reads:
         msgs.append(Message(role="assistant", content="", tool_calls=[ToolCall(name="read_file", args={"path": p, "start": s, "end": e})]))
-        msgs.append(Message(role="tool", name="read_file", content=f"{s:5d} | ...\n(total lines)"))
+        src = (HERE / "mini_repo" / p).read_text().splitlines()          # real numbered lines, as read_file returns them
+        body = "\n".join(f"{i:5d} | {src[i - 1]}" for i in range(s, min(e, len(src)) + 1))
+        msgs.append(Message(role="tool", name="read_file", content=f"{body}\n(total {len(src)} lines)"))
     for tc in extra_calls or []:
         msgs.append(Message(role="assistant", content="", tool_calls=[tc]))
         msgs.append(Message(role="tool", name=tc.name, content="ERROR not_found"))

@@ -47,7 +47,7 @@
   },
   {
    "role": "tool",
-   "content": "    1 | ...\n(total lines)",
+   "content": "    1 | \"\"\"Route handlers.\"\"\"\n    2 | from __future__ import annotations\n    3 | \n    4 | from miniapp.api.errors import NotFound\n    5 | from miniapp.auth.users import UserStore\n    6 | \n    7 | \n    8 | class BaseRoute:\n    9 |     \"\"\"A route matches a path and handles a request dict.\"\"\"\n   10 | \n   11 |     path = \"/\"\n   12 | \n   13 |     def handle(self, request: dict) -> dict:\n   14 |         \"\"\"Return a response dict.\"\"\"\n   15 |         raise NotImplementedError\n   16 | \n   17 | \n   18 | class HealthRoute(BaseRoute):\n   19 |     \"\"\"Liveness check.\"\"\"\n   20 | \n   21 |     path = \"/health\"\n   22 | \n   23 |     def handle(self, request: dict) -> dict:\n   24 |         return {\"status\": 200, \"body\": \"ok\"}\n   25 | \n   26 | \n   27 | class UsersRoute(BaseRoute):\n   28 |     \"\"\"Look up a user by id.\"\"\"\n   29 | \n   30 |     path = \"/users\"\n   31 | \n   32 |     def __init__(self, store: UserStore) -> None:\n   33 |         self.store = store\n   34 | \n   35 |     def handle(self, request: dict) -> dict:\n   36 |         user = self.store.get(request.get(\"query\", {}).get(\"id\", \"\"))\n   37 |         if user is None:\n   38 |             raise NotFound(\"no such user\")\n   39 |         return {\"status\": 200, \"body\": user.name}\n(total 39 lines)",
    "thinking": null,
    "tool_calls": [],
    "name": "read_file",

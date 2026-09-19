@@ -30,7 +30,7 @@ Routes: `/` home page (hero replays the recorded episode), `/app` workbench, `/c
 
 ## Link previews and icons
 
-`index.html` carries Open Graph and Twitter card tags; the image is `public/og.png` (1200×630) and the icons are `public/icon-*.png`, `apple-touch-icon.png`, `favicon.svg`, all derived from the `[L]` mark. Previews need an absolute image URL, so set `VITE_SITE_URL` to the deployed origin at build time (`.env` holds the localhost default). Sources: `scripts/og.html` and `scripts/icon.html`; screenshot them at 1200×630 and 512×512 (e.g. with Playwright) to regenerate.
+`index.html` carries Open Graph and Twitter card tags; the image is `public/og.png` (1200×630) and the icons are `public/icon-*.png`, `apple-touch-icon.png`, `favicon.svg`, all derived from the `[L]` mark. Previews need an absolute image URL. In dev the server derives it from the request host (so a link to your LAN IP or a tunnel previews correctly on a phone); for builds set `VITE_SITE_URL` to the deployed origin (`.env` holds the localhost default). The dev server listens on the network (`host: true`); the Network URL is printed at start. Sources: `scripts/og.html` and `scripts/icon.html`; screenshot them at 1200×630 and 512×512 (e.g. with Playwright) to regenerate.
 
 ## Layout
 

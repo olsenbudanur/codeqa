@@ -1,3 +1,5 @@
+import pytest
+
 from codeqa.grader import gates
 from codeqa.shared.contracts import Budget, Message, ToolCall, Trace, TraceStats
 
@@ -49,14 +51,28 @@ def test_extract_answer_empty_when_still_calling_tools_or_parse_error():
     assert gates.extract_answer(t) == ""
 
 
-def test_format_gate_length_cap_and_stop_reason():
+def test_format_gate_stop_reason_and_length_is_soft():
     b = Budget(max_answer_tokens=10)
     t = _trace(Message(role="assistant", content="short"))
     assert gates.format_gate("short", t, b) == (True, "")
-    ok, why = gates.format_gate("word " * 20, t, b)
-    assert not ok and "cap" in why
+    assert gates.format_gate("word " * 20, t, b) == (True, "")            # over the cap is no longer a gate
+    long = "word " * 20
+    assert gates.length_factor(long, b) == pytest.approx(b.max_answer_tokens / gates.approx_tokens(long))   # ...it scales by cap/len
+    assert gates.length_factor("word " * 5, b) == 1.0
+    assert gates.length_factor("word " * 500, b) == gates.LENGTH_FLOOR
     t.stats.stop_reason = "overflow"
     assert not gates.format_gate("short", t, b)[0]
+
+
+def test_verbatim_paste_is_not_an_answer():
+    tool = Message(role="tool", name="read_file", content="\n".join(f"{i:5d} | def function_number_{i}(arg): return arg * {i}" for i in range(1, 30)))
+    pasted = "Here is the code:\n" + "\n".join(f"def function_number_{i}(arg): return arg * {i}" for i in range(1, 30)) + "\n[a.py:L1-L29]"
+    t = Trace(task_id="t", profile="p", messages=[Message(role="user", content="q"), tool, Message(role="assistant", content=pasted)], stats=TraceStats())
+    assert gates.verbatim_share(pasted, t) > 0.9
+    ok, why = gates.format_gate(pasted, t, Budget())
+    assert not ok and "pasted" in why
+    own = "The functions multiply their argument by their index [a.py:L1-L29]. Each one is a one-liner defined at module level."
+    assert gates.verbatim_share(own, t) == 0.0
 
 
 def test_budget_gate_counts_errors_as_calls():

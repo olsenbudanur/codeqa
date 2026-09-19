@@ -1,6 +1,7 @@
 import { useCallback, useReducer, useRef } from 'react'
 import { api } from '@/lib/api'
 import { emptyEpisode, episodeReducer, type Episode } from '@/state/episode'
+import type { TaskType } from '@/lib/contracts'
 
 export function useEpisode() {
   const [episode, dispatch] = useReducer(episodeReducer, emptyEpisode)
@@ -12,13 +13,13 @@ export function useEpisode() {
     dispatch({ type: 'abort' })
   }, [])
 
-  const ask = useCallback(async (question: string, repoId: string, profile: string) => {
+  const ask = useCallback(async (question: string, repoId: string, profile: string, taskType?: TaskType) => {
     abortRef.current?.abort()
     const ctrl = new AbortController()
     abortRef.current = ctrl
     dispatch({ type: 'start', question, repoId, profile })
     try {
-      for await (const event of api.ask({ repo_id: repoId, question, profile }, ctrl.signal)) {
+      for await (const event of api.ask({ repo_id: repoId, question, profile, task_type: taskType }, ctrl.signal)) {
         if (ctrl.signal.aborted) return
         dispatch({ type: 'event', event })
       }

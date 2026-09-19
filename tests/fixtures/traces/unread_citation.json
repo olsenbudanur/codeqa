@@ -47,7 +47,7 @@
   },
   {
    "role": "tool",
-   "content": "    1 | ...\n(total lines)",
+   "content": "    1 | \"\"\"HMAC token signing and verification.\"\"\"\n    2 | from __future__ import annotations\n    3 | \n    4 | import hashlib\n    5 | import hmac\n    6 | \n    7 | \n    8 | class TokenError(ValueError):\n    9 |     \"\"\"Raised when a token is malformed or its signature does not match.\"\"\"\n   10 | \n   11 | \n   12 | def sign_token(payload: str, secret: str) -> str:\n   13 |     \"\"\"Return payload joined with its hex HMAC-SHA256 signature.\"\"\"\n   14 |     sig = hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()\n   15 |     return f\"{payload}.{sig}\"\n   16 | \n   17 | \n   18 | def verify_token(token: str, secret: str) -> str:\n   19 |     \"\"\"Return the payload if the signature is valid, else raise TokenError.\"\"\"\n   20 |     if \".\" not in token:\n   21 |         raise TokenError(\"malformed token\")\n   22 |     payload, sig = token.rsplit(\".\", 1)\n   23 |     expected = hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()\n   24 |     if not hmac.compare_digest(sig, expected):\n   25 |         raise TokenError(\"bad signature\")\n   26 |     return payload\n(total 26 lines)",
    "thinking": null,
    "tool_calls": [],
    "name": "read_file",

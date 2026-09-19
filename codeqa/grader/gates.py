@@ -82,15 +82,45 @@ def extract_answer(trace: Trace) -> str:
     return text
 
 
+VERBATIM_MAX_SHARE = 0.5     # answers whose lines are mostly pasted tool output are not answers
+LENGTH_FLOOR = 0.1
+
+
+def verbatim_share(answer: str, trace: Trace) -> float:
+    """Share of the answer's substantive lines (>= 20 chars, citations stripped) that appear verbatim in a tool output
+    of this episode. Copying tool output to hit rubric words is the threat the old hard length cap defended against."""
+    tool_lines: set[str] = set()
+    for m in trace.messages:
+        if m.role == "tool":
+            for ln in m.content.splitlines():
+                ln = re.sub(r"^\s*L?\d+\s*\|\s?", "", ln).strip()      # drop the "  41 | " / "L41 | " prefixes read_file adds
+                if len(ln) >= 20:
+                    tool_lines.add(ln)
+    lines = [re.sub(r"^\s*L?\d+\s*\|\s?", "", CITATION_RE.sub("", ln)).strip() for ln in answer.splitlines()]
+    lines = [ln for ln in lines if len(ln) >= 20]
+    if not lines:
+        return 0.0
+    return sum(1 for ln in lines if ln in tool_lines) / len(lines)
+
+
+def length_factor(answer: str, budget: Budget) -> float:
+    """Soft length term: 1.0 up to the cap, then cap / tokens (an answer twice the cap keeps half its reward), floored."""
+    n = approx_tokens(answer)
+    if n <= budget.max_answer_tokens:
+        return 1.0
+    return max(LENGTH_FLOOR, budget.max_answer_tokens / n)
+
+
 def format_gate(answer: str, trace: Trace, budget: Budget) -> tuple[bool, str]:
-    """Format is valid when there is a final answer, it stopped by answering, and it fits the length cap."""
+    """Format is valid when there is a final answer, it stopped by answering, and it is not pasted tool output.
+    Length is no longer a gate (decisions 2026-09-19): it scales the reward through `length_factor`."""
     if trace.stats.stop_reason in ("parse_error", "overflow", "error"):
         return False, f"stop_reason={trace.stats.stop_reason}"
     if not answer:
         return False, "no final answer"
-    n = approx_tokens(answer)
-    if n > budget.max_answer_tokens:
-        return False, f"answer {n} tokens > cap {budget.max_answer_tokens}"
+    v = verbatim_share(answer, trace)
+    if v > VERBATIM_MAX_SHARE:
+        return False, f"{v:.0%} of the answer is pasted tool output"
     return True, ""
 
 

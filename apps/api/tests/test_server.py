@@ -141,7 +141,7 @@ def test_post_repo_starts_a_job(client: TestClient, monkeypatch: pytest.MonkeyPa
 
 def test_suggestions_fall_back_to_generic_without_symbols(client: TestClient) -> None:
     r = client.get(f"/repos/{REPO_ID}/suggestions").json()
-    assert r["repo_id"] == REPO_ID and len(r["questions"]) == 3
+    assert r["repo_id"] == REPO_ID and len(r["questions"]) == 5 and [i["type"] for i in r["items"]] == ["locate", "value", "enumerate", "trace", "explain"]
     assert "widgets" in r["questions"][0]
     assert client.get("/repos/x__y__0000000/suggestions").status_code == 404
 

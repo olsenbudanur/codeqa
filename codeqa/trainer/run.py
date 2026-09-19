@@ -60,6 +60,8 @@ def parse(argv: list[str] | None = None) -> RunSpec:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from codeqa.shared.runtime import maybe_redirect_to_modal
+    maybe_redirect_to_modal("codeqa.trainer.run", argv)   # no-op unless CODEQA_RUNTIME=modal (decision #8)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s", stream=sys.stdout, force=True)
     spec = parse(argv)
     if_exists = spec.extra.pop("_if_exists", "delete")

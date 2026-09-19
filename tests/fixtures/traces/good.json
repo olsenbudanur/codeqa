@@ -47,7 +47,7 @@
   },
   {
    "role": "tool",
-   "content": "   35 | ...\n(total lines)",
+   "content": "   35 | def validate_session(token: str, secret: str, now: float | None = None) -> Session:\n   36 |     \"\"\"Verify the token signature and expiry; raise SessionExpired or TokenError.\"\"\"\n   37 |     payload = verify_token(token, secret)\n   38 |     user_id, expires = payload.split(\":\", 1)\n   39 |     session = Session(user_id=user_id, expires_at=float(expires), token=token)\n   40 |     if session.is_expired(now):\n   41 |         raise SessionExpired(f\"session for {user_id} expired\")\n   42 |     return session\n(total 48 lines)",
    "thinking": null,
    "tool_calls": [],
    "name": "read_file",
@@ -80,7 +80,7 @@
   },
   {
    "role": "tool",
-   "content": "    9 | ...\n(total lines)",
+   "content": "    9 | def auth_middleware(request: dict, secret: str) -> dict:\n   10 |     \"\"\"Validate the session token on a request; map auth failures to 401.\"\"\"\n   11 |     token = request.get(\"headers\", {}).get(\"authorization\", \"\")\n   12 |     try:\n   13 |         session = validate_session(token, secret)\n   14 |     except SessionExpired as exc:\n   15 |         raise Unauthorized(f\"expired: {exc}\") from exc\n   16 |     except TokenError as exc:\n   17 |         raise Unauthorized(f\"invalid: {exc}\") from exc\n   18 |     request[\"session\"] = session\n   19 |     return request\n(total 25 lines)",
    "thinking": null,
    "tool_calls": [],
    "name": "read_file",
@@ -113,7 +113,7 @@
   },
   {
    "role": "tool",
-   "content": "   22 | ...\n(total lines)",
+   "content": "   22 |     def dispatch(self, request: dict) -> dict:\n   23 |         \"\"\"Run middleware, then the matching route; convert HttpError to a response.\"\"\"\n   24 |         try:\n   25 |             request = logging_middleware(request)\n   26 |             if request.get(\"path\") != \"/health\":\n   27 |                 request = auth_middleware(request, self.settings.secret)\n   28 |             route = self.routes.get(request.get(\"path\", \"/\"))\n   29 |             if route is None:\n   30 |                 raise NotFound(request.get(\"path\", \"/\"))\n   31 |             return route.handle(request)\n   32 |         except HttpError as exc:\n   33 |             return {\"status\": exc.status, \"body\": exc.message}\n(total 42 lines)",
    "thinking": null,
    "tool_calls": [],
    "name": "read_file",

@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Activity, Columns2, MessageSquarePlus, PanelLeft, Square } from 'lucide-react'
+import { Activity, ArrowRight, Columns2, ExternalLink, MessageSquarePlus, PanelLeft, Square } from 'lucide-react'
 import { BracketSpinner, ScanLine } from '@/components/working'
 import { navigate } from '@/lib/router'
 import { Wordmark } from '@/components/wordmark'
 import { Toaster, toast } from 'sonner'
 import { api, IS_MOCK } from '@/lib/api'
-import type { Profile, RepoJobStatus, RepoSummary, Span } from '@/lib/contracts'
+import type { Profile, RepoJobStatus, RepoSummary, Span, Suggestion, TaskType } from '@/lib/contracts'
 import { useEpisode } from '@/hooks/use-episode'
 import { useMediaQuery } from '@/hooks/use-media-query'
 import { Button } from '@/components/ui/button'
@@ -35,7 +35,7 @@ export function Workbench() {
   const { episode, ask, stop, reset, load } = useEpisode()
   const [conversations, setConversations] = useState<Conversation[]>(() => listConversations())
   const [activeId, setActiveId] = useState<string | null>(null)
-  const [samples, setSamples] = useState<string[]>([])
+  const [samples, setSamples] = useState<Suggestion[]>([])
   const [liveRun, setLiveRun] = useState<string | null>(null)
   const wide = useMediaQuery('(min-width: 1280px)')
   const pollRef = useRef<number | null>(null)
@@ -180,11 +180,11 @@ export function Workbench() {
     reset()
   }
 
-  const onAsk = (q: string) => {
+  const onAsk = (q: string, type?: TaskType) => {
     if (!repoId || !profile) return
     setOpenSpan(null)
     setActiveId(null)
-    void ask(q, repoId, profile)
+    void ask(q, repoId, profile, type)
   }
 
   const viewer = selected && openSpan && (
@@ -218,6 +218,33 @@ export function Workbench() {
         onDelete={removeConversation}
         onNew={newQuestion}
       />
+      {selected && (
+        <div className="border-t p-3">
+          <p className="mb-2 text-xs text-muted-foreground">This repository</p>
+          <dl className="grid grid-cols-2 gap-y-1 font-mono text-[11.5px]">
+            <dt className="text-muted-foreground">commit</dt>
+            <dd className="text-right">{selected.sha.slice(0, 7)}</dd>
+            <dt className="text-muted-foreground">files</dt>
+            <dd className="text-right tabular-nums">{selected.files.toLocaleString()}</dd>
+            <dt className="text-muted-foreground">lines</dt>
+            <dd className="text-right tabular-nums">{selected.lines.toLocaleString()}</dd>
+            <dt className="text-muted-foreground">symbols</dt>
+            <dd className="text-right tabular-nums">{selected.symbols?.toLocaleString() ?? '–'}</dd>
+          </dl>
+          <div className="mt-3 flex flex-col gap-1">
+            {!IS_MOCK && (
+              <button type="button" onClick={() => navigate(`/workshop/repos/${encodeURIComponent(selected.repo_id)}`)} className="flex items-center justify-between rounded-md px-2 py-1.5 text-left text-[12.5px] hover:bg-accent">
+                Map, files and tool console
+                <ArrowRight className="size-3.5 text-muted-foreground" />
+              </button>
+            )}
+            <a href={selected.url} target="_blank" rel="noreferrer" className="flex items-center justify-between rounded-md px-2 py-1.5 text-[12.5px] hover:bg-accent">
+              Open on GitHub
+              <ExternalLink className="size-3.5 text-muted-foreground" />
+            </a>
+          </div>
+        </div>
+      )}
     </div>
   )
 
@@ -264,35 +291,38 @@ export function Workbench() {
           <div className="flex min-h-0 flex-1">
             <main className="flex min-w-0 flex-1 flex-col overflow-y-auto">
               {episode.status === 'idle' ? (
-                <div className="mx-auto flex w-full max-w-[720px] flex-1 flex-col justify-center px-4 py-10 sm:px-6">
-                  <h1 className="display mb-2 text-center text-[30px] leading-tight text-balance sm:text-[34px]">
+                <div className="mx-auto flex w-full max-w-[960px] flex-1 flex-col justify-center px-4 pt-6 pb-16 sm:px-8 lg:-translate-y-6">
+                  <h1 className="display text-[32px] leading-tight text-balance sm:text-[40px]">
                     {selected ? `Ask about ${repoName(selected)}` : 'Pick a repository to begin'}
                   </h1>
-                  <p className="mx-auto mb-8 max-w-[52ch] text-center text-[15px] leading-6 text-muted-foreground">
+                  <p className="mt-2 max-w-[64ch] text-[15px] leading-6 text-muted-foreground">
                     {selected
                       ? 'The agent reads the code, then answers with a citation for every claim, verified against the lines it read.'
                       : 'Use the switcher at the top left, or add one from a GitHub URL.'}
                   </p>
-                  <div className="relative">
+                  {selected && (
+                    <p className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[11.5px] text-muted-foreground">
+                      <span className="flex items-center gap-1.5"><span className="size-1.5 rounded-full bg-verified" aria-hidden />{selected.sha.slice(0, 7)}</span>
+                      <span>{selected.files.toLocaleString()} files</span>
+                      {selected.symbols ? <span>{selected.symbols.toLocaleString()} symbols</span> : null}
+                      <span>{profiles.find((p) => p.name === profile)?.label ?? profile}</span>
+                    </p>
+                  )}
+                  <div className="relative mt-7">
                     <div className="composer-glow" aria-hidden />
                     <div className="composer-frame bracket bracket-in rounded-xl bg-background">
                       <span className="bracket-corner tl" aria-hidden />
                       <span className="bracket-corner tr" aria-hidden />
                       <span className="bracket-corner bl" aria-hidden />
                       <span className="bracket-corner br" aria-hidden />
-                      <div className="flex items-center gap-3 border-b px-3.5 py-2 font-mono text-[11.5px] text-muted-foreground">
-                        <span className="flex items-center gap-1.5">
-                          <span className="size-1.5 rounded-full bg-verified" aria-hidden />
-                          {selected ? repoName(selected) : 'no repository'}
-                        </span>
-                        {selected && <span className="max-sm:hidden">{selected.sha.slice(0, 7)}, {selected.files.toLocaleString()} files</span>}
-                        <span className="ml-auto truncate">{profiles.find((p) => p.name === profile)?.label ?? profile}</span>
-                      </div>
                       <div className="overflow-hidden rounded-xl">
-                        <QuestionBox onAsk={onAsk} onStop={stop} running={running} disabled={!selected} disabledReason="Pick a repository to ask about" samples={samples} bare />
+                        <QuestionBox onAsk={onAsk} onStop={stop} running={running} disabled={!selected} disabledReason="Pick a repository to ask about" samples={[]} bare />
                       </div>
                     </div>
                   </div>
+                  {samples.length > 0 && (
+                    <QuestionBox onAsk={onAsk} onStop={stop} running={running} disabled={!selected} samples={samples} samplesAs="cards" bare hideBox />
+                  )}
                 </div>
               ) : (
                 <div className="mx-auto w-full max-w-[720px] px-4 pt-8 pb-16 sm:px-6">

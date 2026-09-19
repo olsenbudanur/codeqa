@@ -8,7 +8,7 @@ import { toast, Toaster } from 'sonner'
 import { api } from '@/lib/api'
 import { navigate } from '@/lib/router'
 import { repoName } from '@/lib/repo'
-import type { Profile, RepoSummary, Span } from '@/lib/contracts'
+import type { Profile, RepoSummary, Span, Suggestion, TaskType } from '@/lib/contracts'
 import type { Episode } from '@/state/episode'
 import { cn } from '@/lib/utils'
 import { useEpisode } from '@/hooks/use-episode'
@@ -38,7 +38,7 @@ export function Compare() {
     return [initial.get('left') ?? '', initial.get('right') ?? '']
   })
   const [openSpan, setOpenSpan] = useState<Span | null>(null)
-  const [samples, setSamples] = useState<string[]>([])
+  const [samples, setSamples] = useState<Suggestion[]>([])
   const e0 = useEpisode()
   const e1 = useEpisode()
   const e2 = useEpisode()
@@ -83,12 +83,12 @@ export function Compare() {
     }
   }, [repoId])
 
-  const ask = (q: string) => {
+  const ask = (q: string, type?: TaskType) => {
     if (!repoId || cols.some((c) => !c)) return
     setOpenSpan(null)
     judgeAbort.current?.abort()
     setRef({ status: 'idle', episode: emptyEpisode, verdicts: {} })
-    eps.forEach((e, i) => void e.ask(q, repoId, cols[i]))
+    eps.forEach((e, i) => void e.ask(q, repoId, cols[i], type))
   }
   const stop = () => eps.forEach((e) => e.stop())
   const allAnswered = !idle && !running && eps.every((e) => e.episode.status === 'done' || e.episode.status === 'error')

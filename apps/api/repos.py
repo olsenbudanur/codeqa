@@ -200,18 +200,24 @@ def _is_core_path(path: str) -> bool:
     return not any(p in _SKIP_DIRS or p.startswith("test_") or p.endswith("_test.py") for p in parts)
 
 
-def suggest_questions(repo_id: str, n: int = 3) -> list[str]:
+_DEFAULT_ARG_RE = re.compile(r"(\w+)\s*(?::[^=,)]+)?=\s*([^,)]+)")
+
+
+def suggest_items(repo_id: str) -> list[dict[str, str]]:
+    """One question per task type (locate, value, enumerate, trace, explain), from the index."""
     owner_repo = repo_id.split("__")
     name = owner_repo[1] if len(owner_repo) >= 2 else repo_id
     generic = [
-        f"What is the main entry point of {name}, and what does it do?",
-        f"Trace what happens when {name} handles an error.",
-        f"Which modules in {name} depend on each other the most, and why?",
+        {"type": "locate", "question": f"Where is the main entry point of {name} defined?"},
+        {"type": "value", "question": f"What version string does {name} declare, and where?"},
+        {"type": "enumerate", "question": f"Which modules make up the public API of {name}?"},
+        {"type": "trace", "question": f"Trace what happens when {name} handles an error."},
+        {"type": "explain", "question": f"How does {name} decide what to do on startup, and why?"},
     ]
     try:
         symbols = load_symbols(repo_id)
     except (OSError, ValueError, KeyError):
-        return generic[:n]
+        return generic
     core = [s for s in symbols if _is_core_path(s.path) and not s.name.startswith("_")]
     methods_per_class: dict[tuple[str, str], int] = {}
     for s in core:
@@ -219,18 +225,30 @@ def suggest_questions(repo_id: str, n: int = 3) -> list[str]:
             methods_per_class[(s.path, s.parent)] = methods_per_class.get((s.path, s.parent), 0) + 1
     classes = sorted((s for s in core if s.kind == "class"),
                      key=lambda s: (-methods_per_class.get((s.path, s.name), 0), s.path.count("/"), s.path))
-    # Functions: inside a package (not a root-level setup.py/conftest.py), biggest body first.
     functions = sorted((s for s in core if s.kind == "function" and "/" in s.path and not s.path.endswith(("setup.py", "version.py", "_version.py", "__main__.py"))),
                        key=lambda s: (-(s.end - s.start), s.path.count("/"), s.path))
-    out: list[str] = []
+    out: dict[str, str] = {}
     if classes:
-        out.append(f"Where is the `{classes[0].name}` class defined, and what does it inherit from?")
+        out["locate"] = f"Where is the `{classes[0].name}` class defined, and what does it inherit from?"
+    # value: a parameter with a default in a function or method signature
+    for s in core:
+        sig = getattr(s, "signature", "") or ""
+        if s.kind in ("function", "method") and "(" in sig:
+            m = _DEFAULT_ARG_RE.search(sig[sig.index("(") + 1:])
+            if m and m.group(2).strip() not in ("None", "", "...", "self"):
+                owner = f"`{s.parent}.{s.name}`" if s.parent else f"`{s.name}`"
+                out["value"] = f"What is the default value of `{m.group(1)}` in {owner}?"
+                break
+    # enumerate: a class with a handful of methods
+    mid = [c for c in classes if 3 <= methods_per_class.get((c.path, c.name), 0) <= 12]
+    if mid:
+        out["enumerate"] = f"Which methods does the `{mid[0].name}` class define?"
     if functions:
-        out.append(f"Trace what happens when `{functions[0].name}` is called.")
+        out["trace"] = f"Trace what happens when `{functions[0].name}` is called."
     if len(classes) > 1:
-        out.append(f"What is `{classes[1].name}` responsible for, and where is it used?")
-    for g in generic:
-        if len(out) >= n:
-            break
-        out.append(g)
-    return out[:n]
+        out["explain"] = f"What is `{classes[1].name}` responsible for, and where is it used?"
+    return [{"type": g["type"], "question": out.get(g["type"], g["question"])} for g in generic]
+
+
+def suggest_questions(repo_id: str, n: int = 5) -> list[str]:
+    return [i["question"] for i in suggest_items(repo_id)][:n]

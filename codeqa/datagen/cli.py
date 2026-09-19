@@ -62,6 +62,8 @@ def cmd_split(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from codeqa.shared.runtime import maybe_redirect_to_modal
+    maybe_redirect_to_modal("codeqa.datagen.cli", argv)   # no-op unless CODEQA_RUNTIME=modal (decision #8)
     paths.ensure_dirs()
     ap = argparse.ArgumentParser(prog="codeqa.datagen")
     sub = ap.add_subparsers(dest="cmd", required=True)

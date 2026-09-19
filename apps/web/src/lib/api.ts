@@ -1,4 +1,4 @@
-import type { AskRequest, Profile, RepoJobStatus, RepoSummary, SSEEvent } from './contracts'
+import type { AskRequest, Profile, RepoJobStatus, RepoSummary, SSEEvent, Suggestion } from './contracts'
 import { readSSE } from './sse'
 import { authHeaders, handleUnauthorized } from './auth'
 import mockEvents from '../../mock/events.json'
@@ -14,7 +14,7 @@ export interface Api {
   listProfiles(): Promise<Profile[]>
   ask(req: AskRequest, signal?: AbortSignal): AsyncIterable<SSEEvent>
   getFile(repoId: string, path: string): Promise<string>
-  suggestions(repoId: string): Promise<string[]>
+  suggestions(repoId: string): Promise<Suggestion[]>
 }
 
 // ---------------------------------------------------------------------------
@@ -51,8 +51,8 @@ export class HttpApi implements Api {
     return this.json<Profile[]>('/profiles')
   }
   async suggestions(repoId: string) {
-    const r = await this.json<{ questions: string[] }>(`/repos/${encodeURIComponent(repoId)}/suggestions`)
-    return r.questions
+    const r = await this.json<{ items: Suggestion[] }>(`/repos/${encodeURIComponent(repoId)}/suggestions`)
+    return r.items
   }
   async *ask(req: AskRequest, signal?: AbortSignal) {
     const res = await fetch(this.base + '/ask', {
@@ -194,20 +194,24 @@ export class MockApi implements Api {
     }
   }
 
-  async suggestions(repoId: string) {
+  async suggestions(repoId: string): Promise<Suggestion[]> {
     await sleep(60)
     if (repoId.startsWith('pallets__flask')) {
       return [
-        'Where is the Flask application class defined, and what does it inherit from?',
-        'Trace what happens when a request raises an exception.',
-        'How does Flask decide which session interface to use?',
+        { type: 'locate', question: 'Where is the Flask application class defined, and what does it inherit from?' },
+        { type: 'value', question: 'What is the default value of `use_cookies` in `Flask.test_client`?' },
+        { type: 'enumerate', question: 'Which methods does the `Request` class define?' },
+        { type: 'trace', question: 'Trace what happens when a request raises an exception.' },
+        { type: 'explain', question: 'How does Flask decide which session interface to use?' },
       ]
     }
     const name = repoId.split('__')[1] ?? repoId
     return [
-      `What is the main entry point of ${name}, and what does it do?`,
-      `Trace what happens when ${name} handles an error.`,
-      `Which modules in ${name} depend on each other the most, and why?`,
+      { type: 'locate', question: `Where is the main entry point of ${name} defined?` },
+      { type: 'value', question: `What version string does ${name} declare, and where?` },
+      { type: 'enumerate', question: `Which modules make up the public API of ${name}?` },
+      { type: 'trace', question: `Trace what happens when ${name} handles an error.` },
+      { type: 'explain', question: `How does ${name} decide what to do on startup, and why?` },
     ]
   }
   async getFile(repoId: string, path: string) {

@@ -15,7 +15,7 @@ uv run python -m codeqa.grader --tasks data/tasks/eval/x.jsonl --traces data/tra
 
 ```
 gates (in order, any failure → reward 0, gate_failed set):
-  format      final answer exists, stop_reason not parse_error|overflow|error, answer ≤ max_answer_tokens (Qwen tokenizer; proxy fallback)
+  format      final answer exists, stop_reason not parse_error|overflow|error, answer is not pasted tool output (> 50 % of its lines verbatim from a tool result)
   citations   at least one [path:Lstart-Lend]; every cited file exists and the range is inside it
   grounding   every cited line was shown this episode (union of read_file spans and grep-hit lines, per line, ±1 line tolerance)
   budget      tool_calls ≤ max_tool_calls (errors count); hard_cap variant also caps prompt tokens
@@ -29,7 +29,8 @@ correctness:
   trace | explain with rubric or reference  Haiku judge: fraction of atomic items satisfied (rubric mode) or of ≤6 facts it
                                            derives from the reference (reference mode). 3 retries with backoff, then NaN.
 efficiency (efficiency.py, `--variant`): none = 1.0 (run one) · multiplicative · hard_cap · token_cost (see below)
-reward = correctness × efficiency    |    judge failure → reward NaN, gate_failed = judge_error (trainer maps NaN → group mean)
+length:  soft, not a gate: factor = 1 up to max_answer_tokens, then cap / tokens (floor 0.1), folded into `efficiency`
+reward = correctness × efficiency × length_factor    |    judge failure → reward NaN, gate_failed = judge_error (trainer maps NaN → group mean)
 ```
 
 Only the final assistant content is graded; `<think>` blocks and the `thinking` field are dropped. A last turn that still
@@ -51,7 +52,7 @@ The first half of the budget is free; beyond it, eff falls linearly from 1.0 at 
 
 | Hack | Why it would score | Counter | Fixture | Scores |
 |---|---|---|---|---|
-| Padding, verbosity | judge length bias | `max_answer_tokens` gate; judge sees the answer truncated to the cap; atomic yes/no items; judge told not to prefer longer | `padded.json` | gate `format`, 0 |
+| Padding, verbosity | judge length bias | length factor cap/tokens on the reward; judge sees the answer truncated to the cap; atomic yes/no items; judge told not to prefer longer | `padded.json` | correct × ~0.4 |
 | Confident wrong answer | judge fooled by tone | verifiable types never use the judge; judged types anchored to rubric/reference | `wrong.json` | 0, judge not called |
 | Restating the question | judge partial credit | no item satisfied → 0 | `restated.json` | 0 |
 | Fabricated citation | looks cited | `citations_exist` gate (file and line range checked against the snapshot) | `fabricated.json` | gate `citations`, 0 |
@@ -61,7 +62,7 @@ The first half of the budget is free; beyond it, eff falls linearly from 1.0 at 
 | Answer hidden in thinking | thinking not graded | answer extracted from final content only | `thinking_answer.json` | 0 |
 | Repeated reads to bulk up `files_read` | grounding via volume | grounding is per cited line, so volume buys nothing; redundant reads count as extra calls under `multiplicative` | `redundant_reads.json` | 1.0 under `none`, eff < 1 under `multiplicative` |
 | Tool errors not counted | free calls | every call counts, errors included | `tool_errors.json` | gate `budget`, 0 |
-| Copying tool output verbatim | rubric hits by accident | answer cap; rubric items require synthesis | `verbatim.json` | gate `format`, 0 |
+| Copying tool output verbatim | rubric hits by accident | verbatim-paste gate (> 50 % of answer lines appear in tool outputs); rubric items require synthesis | `verbatim.json` | gate `format`, 0 |
 
 ## Files
 

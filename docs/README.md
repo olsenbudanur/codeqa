@@ -10,3 +10,5 @@
 `agents/` is the onboarding page, the append-only agent log, and one brief per lane under `agents/lanes/`. Agents start there.
 `research/` holds evidence (tool survey, dataset shapes, census, paper notes, the SWE-QA judge script), not specs.
 `archive/` holds superseded drafts. Ignore it.
+
+Runtime: `modal_runtime.md` — what runs on Modal vs Tinker vs EC2, the volume layout, the job runner and sync scripts, gotchas (added 2026-09-19).

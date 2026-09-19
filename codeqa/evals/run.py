@@ -93,6 +93,7 @@ async def eval_task(task: Task, profile_name: str, judge: JudgeClient | None, va
             trace.stats.seconds = time.time() - t0
         if errors:
             logger.warning("%s: episode error: %s", task.task_id, errors[-1])
+        traces_dir.mkdir(parents=True, exist_ok=True)          # a concurrent `modal_sync.sh` can replace data/evals mid-run
         (traces_dir / f"{task.task_id}.json").write_text(trace.model_dump_json(indent=1))
         result = await grade(task, trace, variant=variant, judge_client=judge)
     m = grade_metrics(result, trace, task)
@@ -137,6 +138,7 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
     t0 = time.time()
     rows = await asyncio.gather(*(eval_task(t, args.profile, judge, args.variant, args.temperature, sem, traces_dir) for t in tasks))
     rows = sorted(rows, key=lambda r: r["task_id"])
+    out_dir.mkdir(parents=True, exist_ok=True)
     with (out_dir / "per_task.jsonl").open("w") as f:
         for r in rows:
             f.write(json.dumps(r, default=float) + "\n")
@@ -152,6 +154,8 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from codeqa.shared.runtime import maybe_redirect_to_modal
+    maybe_redirect_to_modal("codeqa.evals.run", argv)   # no-op unless CODEQA_RUNTIME=modal (decision #8)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s", stream=sys.stdout, force=True)
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--profile", required=True)

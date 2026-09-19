@@ -56,10 +56,18 @@ export type SSEEvent =
   | { type: 'done' }
   | { type: 'error'; message: string }
 
+export type TaskType = 'locate' | 'value' | 'enumerate' | 'trace' | 'explain'
+
 export interface AskRequest {
   repo_id: string
   question: string
   profile: string
+  task_type?: TaskType
+}
+
+export interface Suggestion {
+  type: TaskType
+  question: string
 }
 
 export interface Span {

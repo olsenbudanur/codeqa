@@ -68,6 +68,10 @@ async def grade(task: Task, trace: Trace, variant: str = "none", judge_client: J
     else:
         comps.correctness, note = verify(task, answer, report, repo)
 
+    lf = gates.length_factor(answer, budget)
+    if lf < 1.0:
+        comps.efficiency *= lf                   # length rides in the efficiency component (contract has no separate field)
+        note += f"; answer {gates.approx_tokens(answer)} tokens > cap {budget.max_answer_tokens}: x{lf:.2f}"
     reward = comps.correctness * comps.efficiency
     return GradeResult(reward=reward, components=comps, gate_failed=None, notes=note)
 
@@ -99,6 +103,9 @@ def metrics(result: GradeResult, trace: Trace, task: Task) -> dict[str, float]:
         "redundant_reads": float(redundant_reads(trace.stats.files_read)),
         "turns": float(trace.stats.turns),
         "correct": 1.0 if (not nan and result.reward > 0) else 0.0,
+        "length_factor": gates.length_factor(gates.extract_answer(trace), task.effective_budget()),
+        "answer_over_cap": 1.0 if gates.approx_tokens(gates.extract_answer(trace)) > task.effective_budget().max_answer_tokens else 0.0,
+        "verbatim_share": gates.verbatim_share(gates.extract_answer(trace), trace),
         "grounded_by_tolerance": float(grounded_only_by_tolerance(gates.extract_answer(trace), trace.stats.files_read, load_repo(task.repo_id))) if c.citations_parse else 0.0,
         "prefix_tokens": float(context_tokens(trace)[0]),
         "context_tokens": float(context_tokens(trace)[1]),                  # binary; tool_calls / correct = calls per correct answer

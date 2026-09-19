@@ -47,7 +47,7 @@
   },
   {
    "role": "tool",
-   "content": "   30 | ...\n(total lines)",
+   "content": "   30 |     expires_at = time.time() + ttl\n   31 |     token = sign_token(f\"{user_id}:{expires_at}\", secret)\n   32 |     return Session(user_id=user_id, expires_at=expires_at, token=token)\n   33 | \n   34 | \n   35 | def validate_session(token: str, secret: str, now: float | None = None) -> Session:\n   36 |     \"\"\"Verify the token signature and expiry; raise SessionExpired or TokenError.\"\"\"\n   37 |     payload = verify_token(token, secret)\n   38 |     user_id, expires = payload.split(\":\", 1)\n   39 |     session = Session(user_id=user_id, expires_at=float(expires), token=token)\n   40 |     if session.is_expired(now):\n   41 |         raise SessionExpired(f\"session for {user_id} expired\")\n   42 |     return session\n   43 | \n   44 | \n   45 | def expire_session(session: Session) -> Session:\n   46 |     \"\"\"Force a session to expire immediately.\"\"\"\n   47 |     session.expires_at = 0.0\n   48 |     return session\n(total 48 lines)",
    "thinking": null,
    "tool_calls": [],
    "name": "read_file",

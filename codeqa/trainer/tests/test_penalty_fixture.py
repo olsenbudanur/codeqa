@@ -33,7 +33,8 @@ async def test_stalled_vs_bad_format_vs_good():
     stalled.messages[-1] = Message(role="assistant", content="", tool_calls=[ToolCall(name="grep", args={"pattern": "x"})])
     stalled.stats.stop_reason = "budget"
     assert await _shaped(tasks["mini-locate"], stalled) == pytest.approx(-0.1)
-    assert await _shaped(tasks["mini-trace"], _trace("padded")) == 0.0          # answered, over the cap
+    padded = await _shaped(tasks["mini-trace"], _trace("padded"))               # answered, over the cap: scaled, never penalised
+    assert 0.0 < padded < 1.0
     assert await _shaped(tasks["mini-locate"], _trace("good_locate")) == 1.0
-    adv = advantages([-0.1, 0.0, 1.0, 0.0])
+    adv = advantages([-0.1, 0.0, 1.0, 0.0])   # stall < bad answer < correct
     assert adv[0] < adv[1] < adv[2]                                            # stalling ranks below a bad answer

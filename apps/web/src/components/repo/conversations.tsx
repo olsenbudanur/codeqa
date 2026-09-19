@@ -38,7 +38,7 @@ export function Conversations({
       {items.length === 0 ? (
         <p className="px-3 py-2 text-xs text-muted-foreground">Answers about this repository are kept here.</p>
       ) : (
-        <ul className="min-h-0 flex-1 overflow-y-auto px-2 pb-2" aria-label="Past conversations">
+        <ul className="min-h-0 flex-1 space-y-1.5 overflow-y-auto px-2 pb-2" aria-label="Past conversations">
           {items.map((c) => {
             const isActive = c.id === activeId
             return (
@@ -47,12 +47,13 @@ export function Conversations({
                   type="button"
                   onClick={() => onOpen(c)}
                   className={cn(
-                    'flex w-full flex-col gap-0.5 rounded-md py-1.5 pr-7 pl-2 text-left transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring',
-                    isActive && 'bg-accent',
+                    'flex w-full flex-col gap-1 rounded-lg border bg-background py-2 pr-7 pl-2.5 text-left transition-[background-color,border-color] hover:border-foreground/25 hover:bg-accent/60 focus-visible:outline-2 focus-visible:outline-ring',
+                    isActive ? 'border-verified/50 bg-verified-soft/40' : 'border-border',
                   )}
                 >
-                  <span className="line-clamp-2 text-[13px] leading-5">{c.question}</span>
-                  <span className="truncate font-mono text-[11px] text-muted-foreground">
+                  <span className="line-clamp-2 text-[13px] leading-[1.35]">{c.question}</span>
+                  <span className="flex items-center gap-1.5 truncate font-mono text-[11px] text-muted-foreground">
+                    <span className={cn('size-1.5 shrink-0 rounded-full', c.episode.answer ? 'bg-verified' : 'bg-unverified')} aria-hidden />
                     {c.profile}, {when(c.createdAt)}
                   </span>
                 </button>
@@ -60,7 +61,7 @@ export function Conversations({
                   type="button"
                   onClick={() => onDelete(c.id)}
                   aria-label="Delete conversation"
-                  className="absolute top-1.5 right-1 rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-background hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
+                  className="absolute top-2 right-1.5 rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-background hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
                 >
                   <X className="size-3.5" />
                 </button>

@@ -47,7 +47,7 @@
   },
   {
    "role": "tool",
-   "content": "    1 | ...\n(total lines)",
+   "content": "    1 | \"\"\"Configuration defaults and loading.\"\"\"\n    2 | from __future__ import annotations\n    3 | \n    4 | import os\n    5 | from dataclasses import dataclass\n    6 | \n    7 | DEFAULT_TIMEOUT = 30\n    8 | DEFAULT_SECRET = \"change-me\"\n    9 | MAX_SESSIONS = 1000\n   10 | \n   11 | \n   12 | @dataclass\n   13 | class Settings:\n   14 |     \"\"\"Runtime settings for the service.\"\"\"\n   15 | \n   16 |     secret: str = DEFAULT_SECRET\n   17 |     timeout: int = DEFAULT_TIMEOUT\n   18 |     debug: bool = False\n   19 | \n   20 | \n   21 | def load_settings() -> Settings:\n   22 |     \"\"\"Build Settings from environment variables, falling back to defaults.\"\"\"\n   23 |     return Settings(\n   24 |         secret=os.environ.get(\"MINIAPP_SECRET\", DEFAULT_SECRET),\n   25 |         timeout=int(os.environ.get(\"MINIAPP_TIMEOUT\", DEFAULT_TIMEOUT)),\n   26 |         debug=os.environ.get(\"MINIAPP_DEBUG\") == \"1\",\n   27 |     )\n(total 27 lines)",
    "thinking": null,
    "tool_calls": [],
    "name": "read_file",

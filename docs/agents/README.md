@@ -26,7 +26,7 @@ apps/              hosted things: inference (Modal vLLM), api (FastAPI SSE), web
 scripts/           smoke tests: smoke_data, smoke_clients, smoke_chat (A1), smoke_episode (A4), smoke_driver (A5), smoke_train (A6), smoke_grade (C1)
 tests/fixtures/    mini_repo/, index/, tasks.jsonl, traces/<adversarial>.json
 data/              gitignored. repos/ index/ tasks/{raw,train,eval} traces/ logs/ evals/ models/
-docs/              README.md is the reading order. components.md, agent_design.md, contracts.md, data_sources.md, gap_specs.md, decisions.md
+docs/              README.md is the reading order. components.md, agent_design.md, contracts.md, data_sources.md, gap_specs.md, decisions.md, modal_runtime.md
 docs/research/     evidence, not specs. docs/archive/ = superseded, do not read.
 ```
 

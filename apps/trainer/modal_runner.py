@@ -78,12 +78,21 @@ def job(module: str, argv: list[str], env: dict[str, str] | None = None) -> int:
 
 
 @app.local_entrypoint()
-def main(module: str, args: str = "", env: str = "") -> None:
-    """--module codeqa.evals.run --args "<cli args>" [--env KEY=VAL,KEY2=VAL2]"""
+def main(module: str, args: str = "", env: str = "", wait: bool = False) -> None:
+    """--module codeqa.evals.run --args "<cli args>" [--env KEY=VAL,KEY2=VAL2] [--wait]
+
+    Default: spawn the job and return at once with its call id (the job keeps running on Modal).
+    --wait: block and stream until it ends (smokes). Logs any time: `modal app logs codeqa-jobs`.
+    """
     import shlex
     argv = shlex.split(args)
     env_map = dict(kv.split("=", 1) for kv in env.split(",") if kv)
-    rc = job.remote(module, argv, env_map or None)
-    print(f"[runner] job finished with exit code {rc}")
-    if rc:
-        raise SystemExit(rc)
+    if wait:
+        rc = job.remote(module, argv, env_map or None)
+        print(f"[runner] job finished with exit code {rc}")
+        if rc:
+            raise SystemExit(rc)
+        return
+    call = job.spawn(module, argv, env_map or None)
+    print(f"[runner] spawned {module} as {call.object_id}; it keeps running after this returns.\n"
+          f"  logs:    modal app logs codeqa-jobs\n  results: scripts/modal_sync.sh\n  wait:    add --wait to block", flush=True)

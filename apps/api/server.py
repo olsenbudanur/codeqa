@@ -24,7 +24,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from apps.api.repos import IndexJobs, list_repos, read_file, repo_summary, suggest_questions
+from apps.api.repos import IndexJobs, list_repos, read_file, repo_summary, suggest_items, suggest_questions
 from apps.api.workshop import router as workshop_router
 from apps.api.judge import router as judge_router
 from codeqa.agent.driver import run_episode, save_trace
@@ -203,7 +203,8 @@ def job_status(job_id: str) -> dict[str, Any]:
 def repo_suggestions(repo_id: str) -> dict[str, Any]:
     if repo_summary(repo_id) is None:
         raise HTTPException(404, f"unknown or unindexed repo {repo_id}")
-    return {"repo_id": repo_id, "questions": suggest_questions(repo_id)}
+    items = suggest_items(repo_id)
+    return {"repo_id": repo_id, "questions": [i["question"] for i in items], "items": items}
 
 
 @app.get("/file", response_class=PlainTextResponse)
