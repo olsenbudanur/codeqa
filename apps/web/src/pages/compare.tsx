@@ -4,6 +4,7 @@ import { judge, type Verdict } from '@/lib/judge'
 import { HAS_API } from '@/lib/workshop'
 import { emptyEpisode, episodeReducer } from '@/state/episode'
 import { BracketSpinner, ScanLine } from '@/components/working'
+import { ColumnWait } from '@/components/column-wait'
 import { toast, Toaster } from 'sonner'
 import { api } from '@/lib/api'
 import { navigate } from '@/lib/router'
@@ -288,7 +289,7 @@ export function Compare() {
                     <ScanLine />
                     <p className="mt-1.5 flex items-center gap-2 font-mono text-[11.5px] text-muted-foreground">
                       <BracketSpinner />
-                      {(() => { const n = col.ep.rows.filter((r) => r.kind === 'call').length; return n === 0 ? 'reading the repository map' : `researching, ${n} ${n === 1 ? 'call' : 'calls'} so far` })()}
+                      <ColumnWait episode={col.ep} />
                     </p>
                   </div>
                 )}

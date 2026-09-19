@@ -108,13 +108,13 @@ TRACES = {
                              thinking="DEFAULT_TIMEOUT = 30, so the answer is 30 seconds.",
                              final_content=f"<think>DEFAULT_TIMEOUT = 30, so the answer is 30 seconds.</think>\nThe default is documented in the config module [{CONFIG}:L7-L7]."),
     "redundant_reads": trace("mini-locate", "redundant_reads", LOCATE_ANSWER,
-                             [(SESSION, 30, 48), (SESSION, 35, 42), (SESSION, 35, 42), (SESSION, 30, 48), (SESSION, 1, 48)], prompt_tokens=15000),
+                             [(SESSION, 30, 48)] + [(SESSION, 35, 42)] * 6 + [(SESSION, 30, 48), (SESSION, 1, 48)], prompt_tokens=15000),   # 9 reads (<= 12-call budget), 6 redundant: past the free half
     # pasted three times so it stays far past the explain cap (800 tokens since 2026-09-18 evening; was 450)
     "verbatim": trace("mini-explain", "verbatim",
                       "Here is the code:\n" + "\n".join(f"{i:5d} | {line}" for i, line in enumerate(
                           ((HERE / "mini_repo" / TOKENS).read_text().splitlines() + (HERE / "mini_repo" / SESSION).read_text().splitlines()) * 3, 1))
                       + f"\n[{TOKENS}:L1-L26] [{SESSION}:L1-L48]", [(TOKENS, 1, 26), (SESSION, 1, 48)]),
-    "tool_errors": trace("mini-locate", "tool_errors", LOCATE_ANSWER, [(SESSION, 30, 48)], tool_errors=6, tool_calls=7,
+    "tool_errors": trace("mini-locate", "tool_errors", LOCATE_ANSWER, [(SESSION, 30, 48)], tool_errors=20, tool_calls=21,
                          extra_calls=[ToolCall(name="read_file", args={"path": "nope.py", "start": 1, "end": 5}) for _ in range(6)]),
 }
 

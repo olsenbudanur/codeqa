@@ -42,7 +42,9 @@ function contains(outer: Span, inner: Span) {
   return outer.path === inner.path && outer.start <= inner.start && outer.end >= inner.end
 }
 
-export function AnswerPanel({ episode, onOpen, compact, bare }: { episode: Episode; onOpen: (s: Span) => void; compact?: boolean; bare?: boolean }) {
+// `unchecked`: this view cannot verify citations itself (training rollouts do not record which lines were shown), so
+// chips stay neutral and carry this text instead of a verdict; the grader's own components are shown next to the trace.
+export function AnswerPanel({ episode, onOpen, compact, bare, unchecked }: { episode: Episode; onOpen: (s: Span) => void; compact?: boolean; bare?: boolean; unchecked?: string }) {
   const { answer, citations, stats, status, rows, format } = episode
   const read = useMemo(() => filesRead(rows), [rows])
 
@@ -52,6 +54,7 @@ export function AnswerPanel({ episode, onOpen, compact, bare }: { episode: Episo
   // Verdict per citation: the server's check_citations result when it has
   // arrived, otherwise the same grounding rule computed locally from files read.
   const verdictFor = (s: Span): Verdict => {
+    if (unchecked) return 'pending'
     const fromServer = citations?.find((c: CitationItem) => c.path === s.path && c.start === s.start && c.end === s.end)
     if (fromServer) return fromServer.verified ? 'verified' : 'unverified'
     if (status === 'running' && !citations) return read.some((r) => contains(r, s)) ? 'verified' : 'pending'
@@ -69,7 +72,10 @@ export function AnswerPanel({ episode, onOpen, compact, bare }: { episode: Episo
     <section aria-label="Answer" className={compact ? '' : 'mt-8'}>
       <header className={cn('mb-2 flex items-baseline justify-between', bare && 'sr-only')}>
         <h2 className="text-sm font-medium">Answer</h2>
-        {uniqueCited.length > 0 && (
+        {uniqueCited.length > 0 && unchecked && (
+          <span className="font-mono text-xs text-muted-foreground tabular-nums" title={unchecked}>{uniqueCited.length} citations, not checked here</span>
+        )}
+        {uniqueCited.length > 0 && !unchecked && (
           <span className={cn('font-mono text-xs tabular-nums', nVerified === uniqueCited.length ? 'text-verified' : 'text-unverified')}>
             {nVerified} of {uniqueCited.length} citations verified
           </span>
@@ -85,7 +91,7 @@ export function AnswerPanel({ episode, onOpen, compact, bare }: { episode: Episo
         </div>
       )}
       <div className={bare ? '' : 'border-t pt-4'}>
-        <CitedMarkdown markdown={body} verdictFor={verdictFor} onOpen={onOpen} detailFor={(s) => explainCitation(s, rows, read)} />
+        <CitedMarkdown markdown={body} verdictFor={verdictFor} onOpen={onOpen} detailFor={(s) => (unchecked ? unchecked : explainCitation(s, rows, read))} />
       </div>
 
       {!compact && (uniqueCited.length > 0 || consulted.length > 0) && (
@@ -100,9 +106,10 @@ export function AnswerPanel({ episode, onOpen, compact, bare }: { episode: Episo
           <Stat label="tool calls" value={String(stats.tool_calls)} />
           <Stat label="prompt tokens" value={fmt.format(stats.prompt_tokens)} />
           <Stat label="completion tokens" value={fmt.format(stats.completion_tokens)} />
-          <Stat label="seconds" value={stats.seconds.toFixed(1)} />
-          {stats.model_seconds !== undefined && <Stat label="s in the model" value={stats.model_seconds.toFixed(1)} />}
-          {stats.tool_seconds !== undefined && <Stat label="s in tools" value={stats.tool_seconds.toFixed(1)} />}
+          {/* training rollouts record no wall time (seconds is null there), so the time stats only show when known */}
+          {typeof stats.seconds === 'number' && <Stat label="seconds" value={stats.seconds.toFixed(1)} />}
+          {typeof stats.model_seconds === 'number' && <Stat label="s in the model" value={stats.model_seconds.toFixed(1)} />}
+          {typeof stats.tool_seconds === 'number' && <Stat label="s in tools" value={stats.tool_seconds.toFixed(1)} />}
         </dl>
       )}
     </section>

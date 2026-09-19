@@ -7,6 +7,8 @@ answer_tokens, stop_<reason>, judge_error (all from grader.metrics) plus the coo
 """
 from __future__ import annotations
 
+import os
+
 from pathlib import Path
 
 import tinker
@@ -28,5 +30,10 @@ class HeldoutEvaluator(RLTestSetEvaluator):
         self.temperature = temperature
 
     async def __call__(self, sampling_client: tinker.SamplingClient, *, rollout_summary_export=None, store=None) -> dict[str, float]:
+        # Skip the step-0 call: it only re-measures the untrained model, which every run already has on record
+        # (lead, 2026-09-19). Set CODEQA_SKIP_FIRST_EVAL=0 to keep it.
+        self._calls = getattr(self, "_calls", 0) + 1
+        if self._calls == 1 and os.environ.get("CODEQA_SKIP_FIRST_EVAL", "1") != "0":
+            return {}
         policy = TinkerTokenCompleter(sampling_client, max_tokens=self.max_tokens, temperature=self.temperature)
         return await self.eval_token_completer(policy, rollout_summary_export=rollout_summary_export, store=store)

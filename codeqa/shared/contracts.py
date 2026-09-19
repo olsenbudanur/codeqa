@@ -110,20 +110,23 @@ class Grading(BaseModel):
 
 
 class Budget(BaseModel):
-    max_tool_calls: int = 10
-    max_turns: int = 8
+    max_tool_calls: int = 20
+    max_turns: int = 22
     max_answer_tokens: int = 400
 
 
 # Answer caps raised 2026-09-18 evening (decisions.md): at 450 Claude's SWE-QA explain answers failed the format gate
 # on length alone (p50 671 tokens); at 800 it passes 71 % / DeepCodeBench 98 %. Base Qwen answers average ~190 tokens,
 # so the caps only bind on the teacher and the strong baseline. The cap is in the prompt: change it only between runs.
+# Caps 16/18 (2026-09-20 00:20): at 12 the 4B model learned to answer early with too little evidence (locate correct-given-grounded 0.89 -> 0.40): the first phase-1 arm spent 50-80 % of its episodes hitting the turn
+# cap while still calling tools. Turns are calls + 2 so a model that makes one call per turn can use every call and
+# still has a turn left to answer (the cookbook env ends the episode only when the model asks for MORE than the budget).
 DEFAULT_BUDGETS: dict[str, Budget] = {
-    "locate": Budget(max_tool_calls=6, max_turns=6, max_answer_tokens=400),
-    "value": Budget(max_tool_calls=6, max_turns=6, max_answer_tokens=300),
-    "enumerate": Budget(max_tool_calls=10, max_turns=8, max_answer_tokens=500),
-    "trace": Budget(max_tool_calls=10, max_turns=8, max_answer_tokens=600),
-    "explain": Budget(max_tool_calls=12, max_turns=10, max_answer_tokens=800),
+    "locate": Budget(max_tool_calls=16, max_turns=18, max_answer_tokens=400),
+    "value": Budget(max_tool_calls=16, max_turns=18, max_answer_tokens=300),
+    "enumerate": Budget(max_tool_calls=16, max_turns=18, max_answer_tokens=500),
+    "trace": Budget(max_tool_calls=16, max_turns=18, max_answer_tokens=600),
+"explain": Budget(max_tool_calls=16, max_turns=18, max_answer_tokens=800),
 }
 
 

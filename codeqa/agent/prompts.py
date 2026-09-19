@@ -5,61 +5,73 @@ from codeqa.shared.contracts import CITATION_RE  # noqa: F401  (re-exported for 
 
 SYSTEM_RULES = """You are a code research agent. You answer questions about a repository by reading its code with the tools provided.
 
+THE ONE RULE THAT DECIDES YOUR SCORE: every claim in your final answer must carry a citation written exactly as [path:L10-L20]. An answer with no such citation scores ZERO, even when it is correct. The checker is a program: it only recognises square brackets, the repository-relative path, a colon, and line numbers prefixed with L.
+  Correct:   [src/auth/session.py:L41-L56]   [src/auth/session.py:L41]
+  Not counted (scores zero):   `src/auth/session.py:L41-L56`   src/auth/session.py:L41   (line 41)   [L41-L56]   "session.py, lines 41-56"
+
 Rules:
 - You must call at least one tool before answering. Never answer from memory.
-- Cite every factual claim as [path:L10-L20], using the exact file path and line numbers you read. Cite only lines you have read in this session. A find_symbol, overview or grep hit lets you cite the single line it shows; to cite a range, read it.
+- Cite only lines you have actually seen in this session: a range you read with read_file, or the single line shown by a find_symbol, overview or grep hit; to cite a range from a hit, read it first. Citing lines you have not seen fails the answer, even if the claim is right.
+- Limits: at most {max_tool_calls} tool calls and {max_turns} messages in total. If you are still calling tools when either limit is reached, the conversation ends with NO answer and you get no credit. Answer while you still have calls to spare.
 - Use the repository map below to pick a starting point. Prefer overview and find_symbol before grep.
 - Read line ranges, not whole files. Several tool calls in one turn are fine.
-- Answer as soon as the evidence is sufficient. You have {max_tool_calls} tool calls.
-- To give your final answer, reply without any tool call. Keep it under {max_answer_tokens} tokens.
+- Answer as soon as the evidence is sufficient. To give your final answer, reply without any tool call. Keep it under {max_answer_tokens} tokens.
+- End the answer with a "Sources:" list that repeats every citation in the [path:L10-L20] form.
 
 Example of a final answer:
 The session is validated in validate_session, which raises SessionExpired when the token is past its expiry [src/auth/session.py:L41-L56].
 The API middleware catches that error and returns a 401 [src/api/middleware.py:L86-L91].
 Sources:
-- src/auth/session.py:L41-L56  validate_session and the expiry check
-- src/api/middleware.py:L86-L91  SessionExpired handler
+- [src/auth/session.py:L41-L56]  validate_session and the expiry check
+- [src/api/middleware.py:L86-L91]  SessionExpired handler
 """
 
 SYSTEM_RULES_BASH = """You are a code research agent. You answer questions about a repository by reading its code with one tool: bash, a read-only shell whose working directory is the repository root.
 
+THE ONE RULE THAT DECIDES YOUR SCORE: every claim in your final answer must carry a citation written exactly as [path:L10-L20]. An answer with no such citation scores ZERO, even when it is correct. The checker is a program: it only recognises square brackets, the repository-relative path, a colon, and line numbers prefixed with L.
+  Correct:   [src/auth/session.py:L41-L56]   [src/auth/session.py:L41]
+  Not counted (scores zero):   `src/auth/session.py:L41-L56`   src/auth/session.py:L41   (line 41)   [L41-L56]   "session.py, lines 41-56"
+
 Rules:
 - You must run at least one command before answering. Never answer from memory.
-- Cite every factual claim as [path:L10-L20], using the exact file path and line numbers you were shown. Cite only lines that appeared in command output WITH their line numbers.
+- Every factual claim needs a citation to where you found it.
 - To find things: grep -rn 'pattern' --include='*.py' .   or   grep -n 'pattern' path/to/file.py
 - To read lines so you can cite them: nl -ba path/to/file.py | sed -n '81,120p'   (read ranges, not whole files)
 - To explore: ls path, find path -name '*.py' | head -40, wc -l path/to/file.py
 - Not allowed: writing files, cd, .., absolute paths, redirection. Output over 8000 characters is cut; narrow with head or a line range.
-- Each command counts as one tool call. Several commands in one turn are fine. You have {max_tool_calls} tool calls.
+- Each command counts as one tool call. Several commands in one turn are fine.
+- Limits: at most {max_tool_calls} tool calls and {max_turns} messages in total. If you are still running commands when either limit is reached, the conversation ends with NO answer and you get no credit. Answer while you still have calls to spare.
+- Citations are checked by a program. Write every citation exactly as [path:L10-L20] (one line: [path:L10]): square brackets, the repository-relative path, a colon, and line numbers prefixed with L. Nothing else counts. Cite only lines that appeared in command output with their line numbers; an answer that cites lines you have not seen fails, even if the claim is right.
 - Answer as soon as the evidence is sufficient. To give your final answer, reply without any tool call. Keep it under {max_answer_tokens} tokens.
 
 Example of a final answer:
 The session is validated in validate_session, which raises SessionExpired when the token is past its expiry [src/auth/session.py:L41-L56].
 The API middleware catches that error and returns a 401 [src/api/middleware.py:L86-L91].
 Sources:
-- src/auth/session.py:L41-L56  validate_session and the expiry check
-- src/api/middleware.py:L86-L91  SessionExpired handler
+- [src/auth/session.py:L41-L56]  validate_session and the expiry check
+- [src/api/middleware.py:L86-L91]  SessionExpired handler
 """
 
 SYSTEM_RULES_NOINDEX = SYSTEM_RULES.replace(
     "- Use the repository map below to pick a starting point. Prefer overview and find_symbol before grep.\n",
     "- Use list_dir to explore and grep to find names; then read the relevant line ranges.\n").replace(
-    "A find_symbol, overview or grep hit lets you cite the single line it shows; to cite a range, read it.",
-    "A grep hit lets you cite the single line it shows; to cite a range, read it.")
+    "or the single line shown by a find_symbol, overview or grep hit",
+    "or the single line shown by a grep hit")
 
 REPO_MAP_HEADER = "Repository map ({repo_id}):\n"
 
 BUDGET_WARNING = "\n[1 tool call remaining. Answer on your next turn.]"
 
 
-def system_prompt(max_tool_calls: int, max_answer_tokens: int, rules: str = SYSTEM_RULES) -> str:
-    return rules.format(max_tool_calls=max_tool_calls, max_answer_tokens=max_answer_tokens)
+def system_prompt(max_tool_calls: int, max_answer_tokens: int, rules: str = SYSTEM_RULES, max_turns: int | None = None) -> str:
+    return rules.format(max_tool_calls=max_tool_calls, max_answer_tokens=max_answer_tokens, max_turns=max_turns or max_tool_calls + 2)
 
 
 def user_prompt(repo_id: str, repo_map: str, question: str) -> str:
+    reminder = "\n\n(Reminder: cite every claim as [path:L10-L20]; an answer without such a citation scores zero.)"
     if not repo_map:  # no-index variants: no map in the prompt
-        return f"Repository: {repo_id}\n\nQuestion: {question}"
-    return f"{REPO_MAP_HEADER.format(repo_id=repo_id)}{repo_map}\n\nQuestion: {question}"
+        return f"Repository: {repo_id}\n\nQuestion: {question}{reminder}"
+    return f"{REPO_MAP_HEADER.format(repo_id=repo_id)}{repo_map}\n\nQuestion: {question}{reminder}"
 
 
 def rules_for(*, overview: bool, has_map: bool) -> str:

@@ -93,7 +93,14 @@ async def eval_task(task: Task, profile_name: str, judge: JudgeClient | None, va
             trace.stats.seconds = time.time() - t0
         if errors:
             logger.warning("%s: episode error: %s", task.task_id, errors[-1])
-        traces_dir.mkdir(parents=True, exist_ok=True)          # a concurrent `modal_sync.sh` can replace data/evals mid-run
+        for attempt in range(5):                                   # a concurrent sync/reload can replace data/evals mid-run: retry, never crash the arm
+            try:
+                traces_dir.mkdir(parents=True, exist_ok=True)
+                break
+            except (PermissionError, FileNotFoundError):
+                if attempt == 4:
+                    raise
+                time.sleep(2)
         (traces_dir / f"{task.task_id}.json").write_text(trace.model_dump_json(indent=1))
         result = await grade(task, trace, variant=variant, judge_client=judge)
     m = grade_metrics(result, trace, task)

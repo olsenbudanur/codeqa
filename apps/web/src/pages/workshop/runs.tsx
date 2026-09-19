@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ArrowRight, CircleAlert, CircleCheck, Minus, TrendingDown, TrendingUp } from 'lucide-react'
 import { navigate } from '@/lib/router'
-import { fmtNum, fmtWhen, workshop, type Iteration, type MetricRow, type RunDetail, type RunRow } from '@/lib/workshop'
+import { fmtNum, fmtPct, fmtTokens, fmtWhen, workshop, type Iteration, type MetricRow, type RunDetail, type RunRow } from '@/lib/workshop'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -155,6 +155,9 @@ function RunDetailPage({ name, overlay }: { name: string; overlay: string[] }) {
       others.forEach((_o, i) => {
         base[`o${i}_reward`] = maps[i].get(step)?.reward ?? null
         base[`o${i}_smooth`] = maps[i].get(step)?.reward_smooth ?? null
+        base[`o${i}_correct`] = maps[i].get(step)?.correct ?? null
+        base[`o${i}_tool_calls`] = maps[i].get(step)?.tool_calls ?? null
+        base[`o${i}_prompt_tokens`] = maps[i].get(step)?.prompt_tokens ?? null
       })
       return base as MetricRow
     })
@@ -169,18 +172,44 @@ function RunDetailPage({ name, overlay }: { name: string; overlay: string[] }) {
 
   const p = useMemo(() => plateau(rows), [rows])
   const hours = run?.started && run?.updated ? (run.updated - run.started) / 3600 : null
-  const stepsPerHour = hours && hours > 0 && run ? run.steps / hours : null
+  const stepsPerHour = hours && hours > 0.1 && run ? run.steps / hours : null   // under 6 min of history the rate is noise (a freshly synced dir has started ≈ updated)
 
   const rewardSeries: Series[] = [
-    { key: 'reward_band', label: '±1 s.e.', color: SERIES[0], kind: 'band' },
-    { key: 'reward', label: `${name} reward`, color: SERIES[0], kind: 'line' },
+    { key: 'reward_band', label: '±1 s.e.', color: SERIES[0], kind: 'band', follows: 'reward' },
+    { key: 'reward', label: `${name} reward`, color: SERIES[0], kind: 'line', hidden: true },
     { key: 'reward_smooth', label: '5-step mean', color: SERIES[0], kind: 'dashed' },
     { key: 'eval_reward', label: 'held-out (fast)', color: SERIES[2], kind: 'points' },
     ...others.flatMap((o, i) => [
-      { key: `o${i}_reward`, label: `${o.name} reward`, color: SERIES[[1, 3, 4, 6, 7][i % 5]], kind: 'line' as const },
+      { key: `o${i}_reward`, label: `${o.name} reward`, color: SERIES[[1, 3, 4, 6, 7][i % 5]], kind: 'line' as const, hidden: true },
       { key: `o${i}_smooth`, label: `${o.name} 5-step mean`, color: SERIES[[1, 3, 4, 6, 7][i % 5]], kind: 'dashed' as const },
     ]),
     ...extraKeys.filter((k) => toggles[k]).map((k, i) => ({ key: k, label: k.split('/')[1], color: SERIES[(5 + i) % SERIES.length], kind: 'dashed' as const })),
+  ]
+
+  const OVERLAY_COLORS = [1, 3, 4, 6, 7]
+  const correctSeries: Series[] = [
+    { key: 'correct', label: `${name} correct`, color: SERIES[1], kind: 'line', hidden: true },
+    { key: 'correct_smooth', label: '5-step mean', color: SERIES[1], kind: 'dashed' },
+    { key: 'eval_correct', label: 'held-out (fast)', color: SERIES[2], kind: 'points' },
+    ...others.map((o, i) => ({ key: `o${i}_correct`, label: `${o.name} correct`, color: SERIES[OVERLAY_COLORS[(i + 1) % 5]], kind: 'line' as const })),
+  ]
+  const callsSeries: Series[] = [
+    { key: 'tool_calls', label: `${name} tool calls`, color: SERIES[3], kind: 'line', hidden: true },
+    { key: 'tool_calls_smooth', label: '5-step mean', color: SERIES[3], kind: 'dashed' },
+    { key: 'eval_tool_calls', label: 'held-out (fast)', color: SERIES[2], kind: 'points' },
+    ...others.map((o, i) => ({ key: `o${i}_tool_calls`, label: `${o.name} tool calls`, color: SERIES[OVERLAY_COLORS[(i + 2) % 5]], kind: 'line' as const })),
+  ]
+
+  const promptSeries: Series[] = [
+    { key: 'prompt_tokens', label: `${name} prompt tokens`, color: SERIES[4], kind: 'line', hidden: true },
+    { key: 'prompt_tokens_smooth', label: '5-step mean', color: SERIES[4], kind: 'dashed' },
+    { key: 'eval_prompt_tokens', label: 'held-out (fast)', color: SERIES[2], kind: 'points' },
+    ...others.map((o, i) => ({ key: `o${i}_prompt_tokens`, label: `${o.name} prompt tokens`, color: SERIES[OVERLAY_COLORS[(i + 3) % 5]], kind: 'line' as const, hidden: true })),
+  ]
+  const completionSeries: Series[] = [
+    { key: 'completion_tokens', label: `${name} generated`, color: SERIES[6], kind: 'line', hidden: true },
+    { key: 'completion_tokens_smooth', label: '5-step mean', color: SERIES[6], kind: 'dashed' },
+    { key: 'eval_completion_tokens', label: 'held-out (fast)', color: SERIES[2], kind: 'points' },
   ]
 
   return (
@@ -254,6 +283,38 @@ function RunDetailPage({ name, overlay }: { name: string; overlay: string[] }) {
               )}
             </div>
           </Panel>
+          <div className="grid gap-4">
+            <Panel title="Correctness per step" aside="share of episodes judged correct; held-out as points">
+              <MetricChart data={merged} series={correctSeries} height={380} yDomain={[0, 1]} yFormat={fmtPct} />
+              <div className="mt-3 flex flex-wrap gap-6 border-t pt-3">
+                <Stat label="last step" value={rows.at(-1)?.correct !== null && rows.at(-1)?.correct !== undefined ? fmtPct(rows.at(-1)!.correct as number) : '–'} />
+                <Stat label="best step" value={(() => { const b = rows.reduce<MetricRow | null>((acc, m) => (m.correct !== null && m.correct !== undefined && (!acc || (m.correct as number) > (acc.correct as number)) ? m : acc), null); return b ? `${fmtPct(b.correct as number)} @ ${b.step}` : '–' })()} />
+              </div>
+            </Panel>
+            <Panel title="Tool calls per step" aside="mean tool calls per episode; held-out as points">
+              <MetricChart data={merged} series={callsSeries} height={380} yDomain={[0, 'auto']} />
+              <div className="mt-3 flex flex-wrap gap-6 border-t pt-3">
+                <Stat label="last step" value={fmtNum(rows.at(-1)?.tool_calls as number, 2)} />
+                <Stat label="step 0" value={fmtNum(rows[0]?.tool_calls as number, 2)} />
+              </div>
+            </Panel>
+            <Panel title="Prompt tokens per episode" aside="everything the model read across its turns; the cost driver">
+              <MetricChart data={merged} series={promptSeries} height={380} yDomain={[0, 'auto']} yFormat={fmtTokens} />
+              <div className="mt-3 flex flex-wrap gap-6 border-t pt-3">
+                <Stat label="last step" value={fmtTokens(rows.at(-1)?.prompt_tokens as number)} />
+                <Stat label="step 0" value={fmtTokens(rows[0]?.prompt_tokens as number)} />
+                <Stat label="final context" value={rows.at(-1)?.context_tokens !== null && rows.at(-1)?.context_tokens !== undefined ? `${fmtTokens(rows.at(-1)!.context_tokens as number)}${run.config.max_context ? ` of ${fmtTokens(run.config.max_context)}` : ''}` : '–'} />
+              </div>
+            </Panel>
+            <Panel title="Generated tokens per episode" aside="thinking, tool calls and the answer">
+              <MetricChart data={merged} series={completionSeries} height={380} yDomain={[0, 'auto']} yFormat={fmtTokens} />
+              <div className="mt-3 flex flex-wrap gap-6 border-t pt-3">
+                <Stat label="last step" value={fmtTokens(rows.at(-1)?.completion_tokens as number)} />
+                <Stat label="step 0" value={fmtTokens(rows[0]?.completion_tokens as number)} />
+                <Stat label="cap" value={run.config.max_tokens ? fmtTokens(run.config.max_tokens) : '–'} />
+              </div>
+            </Panel>
+          </div>
 
           <Panel title="Health" aside="same checks as codeqa.evals.monitor">
             {run.warnings.length === 0 ? (

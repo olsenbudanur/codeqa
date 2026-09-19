@@ -269,8 +269,8 @@
  ],
  "stats": {
   "turns": 2,
-  "tool_calls": 7,
-  "tool_errors": 6,
+  "tool_calls": 21,
+  "tool_errors": 20,
   "prompt_tokens": 6000,
   "completion_tokens": 400,
   "files_read": [

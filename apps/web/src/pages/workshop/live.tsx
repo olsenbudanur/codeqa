@@ -2,14 +2,13 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { CircleAlert, CircleCheck, Minus, TrendingDown, TrendingUp } from 'lucide-react'
 import { toast } from 'sonner'
 import { navigate } from '@/lib/router'
-import { fmtNum, fmtPct, fmtWhen, workshop, type RunDetail, type RunRow } from '@/lib/workshop'
+import { fmtNum, fmtPct, fmtTokens, fmtWhen, workshop, type RunDetail, type RunRow } from '@/lib/workshop'
 import { cn } from '@/lib/utils'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { MetricChart, SERIES } from '@/components/workshop/charts'
 import { Chip, ErrorNote, Loading, Panel, Stat } from '@/components/workshop/ui'
 import { OptimizerPanel, plateau, withDerived } from './runs'
 import { GateFunnelPanel, HeldOutPanel, SignalDensityPanel } from '@/components/workshop/panels'
-import { LiveBoard } from '@/components/workshop/live-board'
 
 const POLL_MS = 10_000
 
@@ -89,7 +88,7 @@ export function LivePage({ requested }: { requested: string | null }) {
   }, [run, last])
 
   const hours = run?.started && run?.updated ? (run.updated - run.started) / 3600 : null
-  const stepsPerHour = hours && hours > 0 && run ? run.steps / hours : null
+  const stepsPerHour = hours && hours > 0.1 && run ? run.steps / hours : null   // under 6 min of history the rate is noise (a freshly synced dir has started ≈ updated)
 
   const delta = (k: string) => {
     if (!last || !prev) return null
@@ -137,9 +136,6 @@ export function LivePage({ requested }: { requested: string | null }) {
       </div>
 
       {error && <ErrorNote error={error} />}
-      <div className="mb-3">
-        <LiveBoard runs={runs} selected={name} onSelect={(n) => { setName(n); navigate(`/workshop/live?run=${encodeURIComponent(n)}`) }} pollMs={POLL_MS} />
-      </div>
       {!run && !error && <Loading what="run" />}
       {run && last && (
         <div className="grid gap-3 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
@@ -149,8 +145,8 @@ export function LivePage({ requested }: { requested: string | null }) {
               height={320}
               yDomain={[0, 'auto']}
               series={[
-                { key: 'reward_band', label: '±1 s.e.', color: SERIES[0], kind: 'band' },
-                { key: 'reward', label: 'reward', color: SERIES[0] },
+                { key: 'reward_band', label: '±1 s.e.', color: SERIES[0], kind: 'band', follows: 'reward' },
+                { key: 'reward', label: 'reward', color: SERIES[0], hidden: true },
                 { key: 'reward_smooth', label: '5-step mean', color: SERIES[0], kind: 'dashed' },
                 { key: 'eval_reward', label: 'held-out', color: SERIES[2], kind: 'points' },
               ]}
@@ -173,6 +169,40 @@ export function LivePage({ requested }: { requested: string | null }) {
           </Panel>
 
           <div className="grid gap-3">
+            <Panel title="Correctness, tool calls, tokens" aside="per step; held-out as points">
+              <MetricChart
+                data={rows}
+                height={150}
+                yDomain={[0, 1]}
+                yFormat={fmtPct}
+                series={[
+                  { key: 'correct', label: 'correct', color: SERIES[1], hidden: true },
+                  { key: 'correct_smooth', label: '5-step mean', color: SERIES[1], kind: 'dashed' },
+                  { key: 'eval_correct', label: 'held-out', color: SERIES[2], kind: 'points' },
+                ]}
+              />
+              <MetricChart
+                data={rows}
+                height={150}
+                yDomain={[0, 'auto']}
+                series={[
+                  { key: 'tool_calls', label: 'tool calls', color: SERIES[3], hidden: true },
+                  { key: 'tool_calls_smooth', label: '5-step mean', color: SERIES[3], kind: 'dashed' },
+                  { key: 'eval_tool_calls', label: 'held-out', color: SERIES[2], kind: 'points' },
+                ]}
+              />
+              <MetricChart
+                data={rows}
+                height={150}
+                yDomain={[0, 'auto']}
+                yFormat={fmtTokens}
+                series={[
+                  { key: 'prompt_tokens', label: 'prompt tokens', color: SERIES[4], hidden: true },
+                  { key: 'prompt_tokens_smooth', label: '5-step mean', color: SERIES[4], kind: 'dashed' },
+                  { key: 'eval_prompt_tokens', label: 'held-out', color: SERIES[2], kind: 'points' },
+                ]}
+              />
+            </Panel>
             <Panel title="Health" aside={run.warnings.length ? `${run.warnings.length} warning${run.warnings.length > 1 ? 's' : ''}` : 'clear'}>
               {run.warnings.length === 0 ? (
                 <p className="flex items-center gap-2 text-sm text-verified">

@@ -10,12 +10,12 @@ from codeqa.agent.prompts import BUDGET_WARNING
 
 @dataclass(frozen=True)
 class Caps:
-    read_lines: int = 150
-    grep_hits: int = 30
-    grep_files: int = 10
+    read_lines: int = 80
+    grep_hits: int = 20
+    grep_files: int = 8
     symbol_hits: int = 20
-    overview_lines: int = 60
-    list_entries: int = 50
+    overview_lines: int = 40
+    list_entries: int = 40
     line_chars: int = 160
     signature_chars: int = 110
 

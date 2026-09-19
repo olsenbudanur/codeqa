@@ -53,7 +53,7 @@ def _rewrite(argv: list[str]) -> list[str]:
 
 
 @app.function(image=image, volumes={DATA: volume}, secrets=[modal.Secret.from_name(SECRET)],
-              timeout=24 * 3600, cpu=4.0, memory=16384)   # 16 GB: 128 concurrent envs each hold a repo index (cached per repo since 2026-09-19)
+              timeout=24 * 3600, cpu=4.0, memory=32768, retries=modal.Retries(max_retries=3, initial_delay=30.0))   # a watchdog exit(3) or preemption re-runs; --if-exists resume continues   # 16 GB: 128 concurrent envs each hold a repo index (cached per repo since 2026-09-19)
 def job(module: str, argv: list[str], env: dict[str, str] | None = None) -> int:
     """Run `python -m <module> <argv>` in the container; commit the volume periodically and at exit."""
     stop = threading.Event()
@@ -62,6 +62,11 @@ def job(module: str, argv: list[str], env: dict[str, str] | None = None) -> int:
         while not stop.wait(COMMIT_EVERY):
             try:
                 volume.commit()
+                if os.environ.get("CODEQA_VOLUME_RELOAD") == "1":     # OFF by default: a reload while a job writes made /data/evals vanish (2026-09-20 07:53)
+                    try:
+                        volume.reload()
+                    except Exception:  # noqa: BLE001
+                        pass
             except Exception as e:  # noqa: BLE001
                 print(f"[runner] commit failed: {e}", flush=True)
 
@@ -70,7 +75,17 @@ def job(module: str, argv: list[str], env: dict[str, str] | None = None) -> int:
     cmd = [sys.executable, "-u", "-m", module, *_rewrite(argv)]
     print(f"[runner] $ {' '.join(cmd)}  (env: {sorted((env or {}).keys())})", flush=True)
     t0 = time.time()
-    proc = subprocess.run(cmd, cwd="/root", env={**os.environ, **(env or {})})
+    import signal
+    child = subprocess.Popen(cmd, cwd="/root", env={**os.environ, **(env or {})})
+
+    def forward(signum, frame):            # `modal app stop` -> SIGTERM here -> child closes its Tinker sessions, then exits
+        try:
+            child.send_signal(signal.SIGTERM)
+        except Exception:  # noqa: BLE001
+            pass
+    signal.signal(signal.SIGTERM, forward)
+    child.wait()
+    proc = child
     stop.set()
     volume.commit()
     print(f"[runner] exit {proc.returncode} after {time.time() - t0:.0f}s; volume committed", flush=True)

@@ -27,7 +27,7 @@ EXPECTED = {
     "thinking_answer": (None, 0.0),          # the literal lives only in thinking
     "redundant_reads": (None, 1.0),          # grounding fine; efficiency penalized under multiplicative (below)
     "verbatim": ("format", 0.0),             # copied tool output: verbatim-paste gate
-    "tool_errors": ("budget", 0.0),          # 6 errors + 1 read = 7 calls > locate budget of 6
+    "tool_errors": ("budget", 0.0),          # 20 errors + 1 read = 21 calls > locate budget of 20
 }
 
 

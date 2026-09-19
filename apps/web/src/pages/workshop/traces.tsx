@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { ArrowRight, Columns2 } from 'lucide-react'
 import { navigate } from '@/lib/router'
 import type { Span } from '@/lib/contracts'
-import { formatRange } from '@/lib/citations'
+import { formatRange, parseCitations } from '@/lib/citations'
 import { fmtNum, fmtWhen, workshop, type TraceDetail, type TraceList } from '@/lib/workshop'
 import { cn } from '@/lib/utils'
 import { emptyEpisode, episodeReducer, type Episode } from '@/state/episode'
@@ -159,13 +159,29 @@ function toEpisode(t: TraceDetail): Episode {
   return ep
 }
 
+// Rollout summaries do not record which lines the tools showed, so this page cannot re-check citations; say so and
+// point at the grader's verdict, which did have the repo.
+function gradedNote(t: TraceDetail): string {
+  const c = t.grade?.components ?? {}
+  const parts = [`Not checked here: training rollouts do not record which lines were shown.`]
+  if (t.grade) {
+    const ex = c.citations_exist, gr = c.citations_grounded
+    parts.push(`The grader scored this rollout: citations exist ${typeof ex === 'number' ? ex.toFixed(2) : '?'}, grounded ${typeof gr === 'number' ? gr.toFixed(2) : '?'}${t.grade.gate_failed ? `, gate: ${t.grade.gate_failed}` : ''}.`)
+  }
+  return parts.join(' ')
+}
+
 export function TraceView({ trace, onOpen, compact }: { trace: TraceDetail; onOpen: (s: Span) => void; compact?: boolean }) {
   const ep = useMemo(() => toEpisode(trace), [trace])
   return (
     <div>
       {!compact && <p className="mb-5 text-[16px] leading-snug font-medium">{trace.question || <span className="text-muted-foreground">(question not recorded in this rollout)</span>}</p>}
       <Ledger rows={ep.rows} running={false} onOpen={onOpen} budget={undefined} />
-      <AnswerPanel episode={ep} onOpen={onOpen} />
+      <AnswerPanel
+        episode={ep}
+        onOpen={onOpen}
+        unchecked={trace.kind === 'rollout' ? gradedNote(trace) : undefined}
+      />
       {!ep.answer && <p className="mt-6 border-t pt-3 text-sm text-muted-foreground">No final answer ({String(trace.stats.stop_reason ?? 'unknown')}).</p>}
     </div>
   )
@@ -208,9 +224,11 @@ export function GradePanel({ trace }: { trace: TraceDetail }) {
         </dl>
         {g.notes && <p className="mt-3 font-mono text-[11.5px] text-muted-foreground">{g.notes}</p>}
       </Panel>
-      <Panel title="Citations" aside={`${trace.citations.filter((c) => c.verified).length} of ${trace.citations.length} verified`}>
-        {trace.citations.length === 0 ? (
-          <p className="text-sm text-muted-foreground">None in the answer{trace.kind === 'rollout' ? ' (rollouts carry no repo, so none are checked)' : ''}.</p>
+      <Panel title="Citations" aside={trace.kind === 'rollout' ? `${parseCitations(trace.answer ?? '').length} in the answer` : `${trace.citations.filter((c) => c.verified).length} of ${trace.citations.length} verified`}>
+        {trace.kind === 'rollout' ? (
+          <p className="text-sm text-muted-foreground">{gradedNote(trace)}</p>
+        ) : trace.citations.length === 0 ? (
+          <p className="text-sm text-muted-foreground">None in the answer.</p>
         ) : (
           <table className="w-full text-[12px]">
             <thead className="text-left text-muted-foreground">

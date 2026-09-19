@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Area, Bar, BarChart, CartesianGrid, ComposedChart, Legend, Line, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import type { MetricRow } from '@/lib/workshop'
 
@@ -9,6 +10,8 @@ export interface Series {
   label: string
   color: string
   kind?: 'line' | 'points' | 'band' | 'dashed' | 'area'
+  hidden?: boolean // off until the viewer clicks it in the legend (raw per-step lines default to hidden behind their 5-step mean)
+  follows?: string // a band drawn around another series: shown and hidden with it, never listed in the legend
 }
 
 export function rollingMean(values: (number | null)[], window = 5): (number | null)[] {
@@ -31,7 +34,7 @@ export function fmtSig(v: number | null | undefined): string {
   return v.toExponential(1)
 }
 
-function TooltipBox({ active, payload, label, series, pct }: { active?: boolean; payload?: { dataKey?: string; value?: unknown; name?: string }[]; label?: unknown; series: Series[]; pct?: boolean }) {
+function TooltipBox({ active, payload, label, series, pct, format }: { active?: boolean; payload?: { dataKey?: string; value?: unknown; name?: string }[]; label?: unknown; series: Series[]; pct?: boolean; format?: (v: number) => string }) {
   if (!active || !payload?.length) return null
   return (
     <div className="min-w-[220px] rounded-md border bg-popover px-3 py-2.5 font-mono text-[12.5px] shadow-md">
@@ -40,7 +43,8 @@ function TooltipBox({ active, payload, label, series, pct }: { active?: boolean;
         const p = payload.find((x) => x.dataKey === s.key)
         if (!p || p.value === null || p.value === undefined) return null
         if (pct && typeof p.value === 'number' && Math.round(p.value * 100) === 0) return null   // stacked bars: only reasons that occurred
-        const v = Array.isArray(p.value) ? `${fmtSig(p.value[0] as number)}–${fmtSig(p.value[1] as number)}` : pct ? `${Math.round((p.value as number) * 100)}%` : fmtSig(p.value as number)
+        const one = (x: number) => (format ? format(x) : fmtSig(x))
+        const v = Array.isArray(p.value) ? `${one(p.value[0] as number)}–${one(p.value[1] as number)}` : pct ? `${Math.round((p.value as number) * 100)}%` : one(p.value as number)
         return (
           <div key={s.key} className="flex items-center gap-2">
             <span className="size-2 rounded-sm" style={{ background: s.color }} aria-hidden />
@@ -60,6 +64,7 @@ export function MetricChart({
   yDomain,
   legend = true,
   refLines = [],
+  yFormat,
 }: {
   data: (MetricRow | Record<string, unknown>)[]
   series: Series[]
@@ -67,25 +72,46 @@ export function MetricChart({
   yDomain?: [number | 'auto', number | 'auto']
   legend?: boolean
   refLines?: { y: number; label: string }[]
+  yFormat?: (v: number) => string
 }) {
+  // Legend clicks toggle series. State is keyed by series key, so a re-render with the same series keeps the choice.
+  const [hidden, setHidden] = useState<Set<string>>(() => new Set(series.filter((s) => s.hidden).map((s) => s.key)))
+  const isHidden = (s: Series) => hidden.has(s.follows ?? s.key)
+  const toggle = (key: string) =>
+    setHidden((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  const visible = series.filter((s) => !isHidden(s))
   return (
     <ResponsiveContainer width="100%" height={height}>
       <ComposedChart data={data} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
         <CartesianGrid stroke="var(--viz-grid)" vertical={false} />
         <XAxis dataKey="step" tick={tickStyle} axisLine={{ stroke: 'var(--viz-grid)' }} tickLine={false} allowDecimals={false} />
-        <YAxis tick={tickStyle} axisLine={false} tickLine={false} domain={yDomain ?? ['auto', 'auto']} width={52} tickFormatter={(v: number) => fmtSig(v)} />
-        <Tooltip content={<TooltipBox series={series} />} cursor={{ stroke: 'var(--muted-foreground)', strokeDasharray: '3 3' }} allowEscapeViewBox={{ x: true, y: true }} wrapperStyle={{ zIndex: 50 }} />
-        {legend && series.length > 1 && <Legend iconType="plainline" wrapperStyle={{ fontSize: 11.5, fontFamily: 'var(--font-mono)', color: 'var(--muted-foreground)' }} />}
+        <YAxis tick={tickStyle} axisLine={false} tickLine={false} domain={yDomain ?? ['auto', 'auto']} width={52} tickFormatter={(v: number) => (yFormat ? yFormat(v) : fmtSig(v))} />
+        <Tooltip content={<TooltipBox series={visible} format={yFormat} />} cursor={{ stroke: 'var(--muted-foreground)', strokeDasharray: '3 3' }} allowEscapeViewBox={{ x: false, y: true }} wrapperStyle={{ zIndex: 50 }} />
+        {legend && series.length > 1 && (
+          <Legend
+            iconType="plainline"
+            wrapperStyle={{ fontSize: 11.5, fontFamily: 'var(--font-mono)', color: 'var(--muted-foreground)', cursor: 'pointer' }}
+            onClick={(e: { dataKey?: unknown }) => typeof e.dataKey === 'string' && toggle(e.dataKey)}
+            formatter={(value: string, entry: { dataKey?: unknown }) => (
+              <span style={{ opacity: typeof entry.dataKey === 'string' && hidden.has(entry.dataKey) ? 0.45 : 1, textDecoration: typeof entry.dataKey === 'string' && hidden.has(entry.dataKey) ? 'line-through' : undefined }}>{value}</span>
+            )}
+          />
+        )}
         {refLines.map((r) => (
           <ReferenceLine key={r.label} y={r.y} stroke="var(--unverified)" strokeDasharray="4 3" label={{ value: r.label, position: 'insideTopRight', fontSize: 10, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }} />
         ))}
         {series.map((s) =>
           s.kind === 'band' ? (
-            <Area key={s.key} type="monotone" dataKey={s.key} name={s.label} stroke="none" fill={s.color} fillOpacity={0.16} isAnimationActive={false} connectNulls legendType="none" />
+            <Area key={s.key} type="monotone" dataKey={s.key} name={s.label} stroke="none" fill={s.color} fillOpacity={0.16} isAnimationActive={false} connectNulls legendType="none" hide={isHidden(s)} />
           ) : s.kind === 'area' ? (
-            <Area key={s.key} type="monotone" dataKey={s.key} name={s.label} stackId="a" stroke={s.color} strokeWidth={1} fill={s.color} fillOpacity={0.55} isAnimationActive={false} connectNulls />
+            <Area key={s.key} type="monotone" dataKey={s.key} name={s.label} stackId="a" stroke={s.color} strokeWidth={1} fill={s.color} fillOpacity={0.55} isAnimationActive={false} connectNulls hide={isHidden(s)} />
           ) : s.kind === 'points' ? (
-            <Line key={s.key} type="monotone" dataKey={s.key} name={s.label} stroke="none" dot={{ r: 5, fill: s.color, stroke: 'var(--background)', strokeWidth: 2 }} activeDot={{ r: 6 }} isAnimationActive={false} connectNulls={false} />
+            <Line key={s.key} type="monotone" dataKey={s.key} name={s.label} stroke="none" dot={{ r: 5, fill: s.color, stroke: 'var(--background)', strokeWidth: 2 }} activeDot={{ r: 6 }} isAnimationActive={false} connectNulls={false} hide={isHidden(s)} />
           ) : (
             <Line
               key={s.key}
@@ -99,6 +125,7 @@ export function MetricChart({
               activeDot={{ r: 5, stroke: 'var(--background)', strokeWidth: 2 }}
               isAnimationActive={false}
               connectNulls
+              hide={isHidden(s)}
             />
           ),
         )}

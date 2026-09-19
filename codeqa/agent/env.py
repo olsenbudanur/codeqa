@@ -50,7 +50,7 @@ class RepoEnv:
 
     def initial_messages(self) -> list[Message]:
         return [
-            Message(role="system", content=system_prompt(self.budget.max_tool_calls, self.budget.max_answer_tokens, self.variant.rules)),
+            Message(role="system", content=system_prompt(self.budget.max_tool_calls, self.budget.max_answer_tokens, self.variant.rules, max_turns=self.budget.max_turns)),
             Message(role="user", content=user_prompt(self.repo_id, self.repo_map, self.task.question)),
         ]
 

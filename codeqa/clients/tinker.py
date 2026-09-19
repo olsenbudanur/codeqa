@@ -24,18 +24,72 @@ def _require_key() -> None:
         raise RuntimeError("TINKER_API_KEY is not set (add it to .env)")
 
 
-@lru_cache(maxsize=1)
-def service_client():
+_OPEN_CLIENTS: list = []          # every ServiceClient this process created (ours and the cookbook's), closed at exit
+
+
+def _install_session_hygiene() -> None:
+    """Every tinker.ServiceClient opens a server-side session; a process that exits without close() leaves it
+    'Active' holding its in-flight sampling requests (133 orphans on 2026-09-19 hung the whole account).
+    Wrap the class so every instance is tracked and finished at exit or on SIGTERM."""
+    import atexit, signal, tinker
+    if getattr(tinker.ServiceClient, "_codeqa_tracked", False):
+        return
+    original_init = tinker.ServiceClient.__init__
+
+    def tracked_init(self, *a, **kw):
+        original_init(self, *a, **kw)
+        _OPEN_CLIENTS.append(self)
+
+    tinker.ServiceClient.__init__ = tracked_init
+    tinker.ServiceClient._codeqa_tracked = True
+    atexit.register(close_all_sessions, "success")
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            prev = signal.getsignal(sig)
+
+            def handler(signum, frame, _prev=prev):
+                close_all_sessions("interrupted")
+                if callable(_prev) and _prev not in (signal.SIG_DFL, signal.SIG_IGN):
+                    _prev(signum, frame)
+                else:
+                    raise SystemExit(128 + signum)
+            signal.signal(sig, handler)
+        except (ValueError, OSError):
+            pass  # not the main thread
+
+
+def close_all_sessions(status: str = "success", detail: str = "process exit") -> int:
+    """Finish every session this process opened (POST /sessions/{id}/finish). Safe to call twice."""
+    n = 0
+    for c in list(_OPEN_CLIENTS):
+        try:
+            c.close(status, detail).result(timeout=20)
+            n += 1
+        except Exception:  # noqa: BLE001
+            pass
+    _OPEN_CLIENTS.clear()
+    return n
+
+
+@lru_cache(maxsize=4)
+def service_client(api_key_env: str | None = None):
+    """One service client per API key. `api_key_env` names the env var holding the key (a profile's `api_key_env`);
+    None means TINKER_API_KEY. Checkpoints live in the org that made them, so a profile trained in another org
+    (phase 1 runs in a second org while the first drains its backlog) carries the env var of that org's key."""
     _require_key()
     import tinker
-    # fail fast: the SDK retries 402/5xx for a long time by default
-    return tinker.ServiceClient(max_retries=1) if "max_retries" in tinker.ServiceClient.__init__.__code__.co_varnames else tinker.ServiceClient()
+    from codeqa.clients.base import key_from_env
+    _install_session_hygiene()
+    kw = {"api_key": key_from_env(api_key_env, "TINKER_API_KEY")}
+    if "max_retries" in tinker.ServiceClient.__init__.__code__.co_varnames:
+        kw["max_retries"] = 1        # fail fast: the SDK retries 402/5xx for a long time by default
+    return tinker.ServiceClient(**kw)
 
 
 @lru_cache(maxsize=8)
-def sampling_client(model: str):
-    """One sampling client per model. `model` is a base name (Qwen/Qwen3.5-4B) or a tinker:// checkpoint path."""
-    sc = service_client()
+def sampling_client(model: str, api_key_env: str | None = None):
+    """One sampling client per (model, key). `model` is a base name (Qwen/Qwen3.5-4B) or a tinker:// checkpoint path."""
+    sc = service_client(api_key_env)
     if model.startswith(CHECKPOINT_PREFIX):
         return sc.create_sampling_client(model_path=model)
     return sc.create_sampling_client(base_model=model)
@@ -156,7 +210,7 @@ class TinkerChatClient:
         base = base_model_of(profile)
         self.renderer = renderer(base, profile.renderer)
         self.tokenizer = tokenizer(base)
-        self._sc = sampling_client(profile.model)
+        self._sc = sampling_client(profile.model, profile.api_key_env)
         self._stop = self.renderer.get_stop_sequences()
 
     def build_prompt(self, messages: list[Message], tools: list[dict[str, Any]] | None = None):

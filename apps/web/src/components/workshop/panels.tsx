@@ -14,6 +14,14 @@ export function withDerived(run: RunDetail): MetricRow[] {
   const n = (cfg.groups_per_batch ?? 0) * (cfg.group_size ?? 0)
   const rewards = run.metrics.map((m) => num(m[E('reward/total')]) ?? num(m[E('reward')]))
   const smooth = rollingMean(rewards, 5)
+  const corrects = run.metrics.map((m) => num(m[E('correct')]))
+  const correctSmooth = rollingMean(corrects, 5)
+  const calls = run.metrics.map((m) => num(m[E('tool_calls')]))
+  const callsSmooth = rollingMean(calls, 5)
+  const prompts = run.metrics.map((m) => num(m[E('prompt_tokens')]))
+  const promptsSmooth = rollingMean(prompts, 5)
+  const completions = run.metrics.map((m) => num(m[E('completion_tokens')]))
+  const completionsSmooth = rollingMean(completions, 5)
   const per = (a: number | null, b: number | null) => (a !== null && b !== null && b > 0 ? a / b : null)
   return run.metrics.map((m, i) => {
     const std = num(m[E('group_reward_std')])
@@ -30,6 +38,21 @@ export function withDerived(run: RunDetail): MetricRow[] {
       reward_smooth: smooth[i],
       reward_band: r !== null && se !== null ? ([r - se, r + se] as unknown as number) : null,
       eval_reward: num(m[EV('reward/total')]) ?? num(m[EV('reward')]),
+      // correctness (share of episodes judged correct) and tool calls per episode, same shape as reward: raw, 5-step mean, held-out points
+      correct,
+      correct_smooth: correctSmooth[i],
+      eval_correct: evCorrect,
+      tool_calls: calls[i],
+      tool_calls_smooth: callsSmooth[i],
+      eval_tool_calls: num(m[EV('tool_calls')]),
+      // tokens per episode: prompt = everything the model read across its turns (the cost driver), completion = generated
+      prompt_tokens: prompts[i],
+      prompt_tokens_smooth: promptsSmooth[i],
+      eval_prompt_tokens: num(m[EV('prompt_tokens')]),
+      completion_tokens: completions[i],
+      completion_tokens_smooth: completionsSmooth[i],
+      eval_completion_tokens: num(m[EV('completion_tokens')]),
+      context_tokens: num(m[E('context_tokens')]),
       stalled: num(m[E('stalled')]) ?? ((num(m[E('stop_budget')]) ?? 0) + (num(m[E('stop_max_turns')]) ?? 0)),
       // the "format" gate splits by stop reason: ran out of tool calls, ran out of turns, context overflow, bad tool syntax,
       // and whatever is left (pasted tool output / driver errors)

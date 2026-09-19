@@ -8,7 +8,27 @@ set -euo pipefail
 DEST="${1:-data}"
 STAGE="$DEST/.modal_pull"
 rm -rf "$STAGE"; mkdir -p "$STAGE"
-for d in logs evals traces models; do
+# CODEQA_SYNC_RUNS="p4_lean p4_full": pull only those run folders under /logs (a full /logs pull is >500 MB and no longer
+# fits a one-minute loop); /evals and /models are always pulled, /traces only on a full sync.
+if [ -n "${CODEQA_SYNC_RUNS:-}" ]; then
+  mkdir -p "$STAGE/logs" "$DEST/logs"
+  for run in $CODEQA_SYNC_RUNS; do
+    if modal volume get codeqa-data "/logs/$run" "$STAGE/logs" --force >/dev/null 2>&1; then
+      mkdir -p "$DEST/logs/$run"; rsync -a "$STAGE/logs/$run/" "$DEST/logs/$run/" && echo "pulled /logs/$run"
+    else
+      echo "(no /logs/$run on the volume yet)"
+    fi
+  done
+  DIRS="evals models"
+else
+  DIRS="logs evals traces models"
+fi
+for d in $DIRS; do
+  # prune staged run/eval folders that no longer exist on the volume (renamed or deleted runs must not come back)
+  if [ "$d" = logs ] || [ "$d" = evals ]; then
+    live=$(modal volume ls codeqa-data "/$d" 2>/dev/null | grep -oE "$d/[A-Za-z0-9_.-]+" | sed "s#^$d/##" | sort -u)
+    for x in $(ls "$STAGE/$d" 2>/dev/null); do echo "$live" | grep -qx "$x" || rm -rf "$STAGE/$d/$x"; done
+  fi
   if modal volume get codeqa-data "/$d" "$STAGE" --force >/dev/null 2>&1; then
     if [ "$d" = "models" ]; then
       mkdir -p "$DEST/models"

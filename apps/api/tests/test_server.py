@@ -185,3 +185,80 @@ def test_format_failure_is_reported(client: TestClient, monkeypatch: pytest.Monk
         events = read_sse(r.read().decode())
     cit = next(e for e in events if e["type"] == "citations")
     assert cit["format_ok"] is False and "citation" in cit["format_reason"].lower()
+
+
+def test_dead_tinker_session_is_reopened_once(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Tinker answers 400 "cancelled" for every call once it has ended our session. The ask must drop the session,
+    open a new one and answer on it, with no error event reaching the UI."""
+    import apps.api.server as server
+
+    class DeadThenAlive(ScriptedClient):
+        dead = True
+
+        async def chat(self, messages, tools=None, max_tokens=None, temperature=1.0):
+            if DeadThenAlive.dead:
+                raise RuntimeError("Error code: 400 - {'detail': 'This ServiceClient has finished (interrupted) and cannot run further operations.'}")
+            return await super().chat(messages, tools, max_tokens, temperature)
+
+    profile = server.EndpointProfile(name="scripted", kind="tinker", model="Qwen/Qwen3.5-4B")
+    resets: list[str] = []
+
+    def fake_reset() -> None:
+        resets.append("reset")
+        DeadThenAlive.dead = False
+
+    async def fake(name: str):
+        return DeadThenAlive(profile)
+
+    monkeypatch.setattr(server, "client_for", fake)
+    monkeypatch.setattr(server, "reset_tinker_session", fake_reset)
+    with client.stream("POST", "/ask", json={"repo_id": REPO_ID, "question": "q", "profile": "scripted"}) as r:
+        events = read_sse(r.read().decode())
+    assert resets == ["reset"]
+    assert [e["type"] for e in events if e["type"] == "error"] == []
+    assert any(e["type"] == "answer" for e in events)
+    assert next(e for e in events if e["type"] == "stats")["stop_reason"] == "answer"
+
+
+def test_reset_tinker_session_drops_only_tinker_clients(monkeypatch: pytest.MonkeyPatch) -> None:
+    import apps.api.server as server
+
+    class C:
+        def __init__(self, kind: str) -> None:
+            self.profile = server.EndpointProfile(name=kind, kind=kind, model="m")
+
+    monkeypatch.setattr(server, "_clients", {"claude": C("anthropic"), "qwen4b-base": C("tinker")})
+    server.reset_tinker_session()
+    assert list(server._clients) == ["claude"]
+
+
+def test_idle_tinker_client_is_probed_and_rebuilt_on_hang(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A sampling client whose probe hangs is rebuilt before the episode runs; one that answers is kept."""
+    import apps.api.server as server
+
+    profile = server.EndpointProfile(name="scripted", kind="tinker", model="Qwen/Qwen3.5-4B")
+    built: list[str] = []
+    probes: list[bool] = [False, True]   # first client hangs, the rebuilt one answers
+
+    async def fake_client_for(name: str):
+        built.append(name)
+        return ScriptedClient(profile)
+
+    async def fake_probe(c):
+        return probes.pop(0)
+
+    rebuilt: list[str] = []
+    monkeypatch.setattr(server, "load_profiles", lambda: {"scripted": profile})
+    monkeypatch.setattr(server, "client_for", fake_client_for)
+    monkeypatch.setattr(server, "probe_tinker", fake_probe)
+    monkeypatch.setattr(server, "rebuild_sampling_client", lambda name: rebuilt.append(name))
+    monkeypatch.setattr(server, "_tinker_last_ok", {})
+    with client.stream("POST", "/ask", json={"repo_id": REPO_ID, "question": "q", "profile": "scripted"}) as r:
+        events = read_sse(r.read().decode())
+    assert rebuilt == ["scripted"] and built == ["scripted", "scripted"]
+    assert any(e["type"] == "answer" for e in events)
+    # the episode answered, so the profile is marked fresh and the next ask skips the probe
+    assert "scripted" in server._tinker_last_ok
+    with client.stream("POST", "/ask", json={"repo_id": REPO_ID, "question": "q", "profile": "scripted"}) as r:
+        read_sse(r.read().decode())
+    assert rebuilt == ["scripted"] and probes == [True]

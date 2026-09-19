@@ -111,6 +111,75 @@ async def client_for(name: str) -> ModelClient:
     return _clients[name]
 
 
+# Tinker's 400 once the server has ended our session: "This ServiceClient was cancelled and cannot run further
+# operations", or "... has finished (interrupted) and cannot run further operations" (seen after a congested hour).
+DEAD_SESSION_MARK = "cannot run further operations"
+
+
+def is_dead_session(message: str) -> bool:
+    return DEAD_SESSION_MARK in message
+
+
+def reset_tinker_session() -> None:
+    """Drop the process-wide Tinker session and every client built on it. The next ask opens one fresh session
+    (the product keeps exactly one; training jobs have their own). Called when Tinker answers 400 "cancelled":
+    the server ends a session whose heartbeats stopped, and a cached client would fail every call forever."""
+    from codeqa.clients import tinker as tk
+    for name in [n for n, c in _clients.items() if c.profile.kind == "tinker"]:
+        _clients.pop(name, None)
+    tk.sampling_client.cache_clear()
+    tk.service_client.cache_clear()
+    log("[api] tinker session was ended by the server; dropped it, the next ask opens a new one")
+
+
+# A sampling client that lived through a congested hour can wedge inside the SDK's per-client futures poller (every
+# abandoned request, from a Stop or a timeout, stays in its poll batch): every sample then hangs until CHAT_TIMEOUT
+# although a fresh client answers in a second (seen 23:24-23:47 on 2026-09-18; the 9B client in the same session was
+# fine). Before a Tinker ask, if that profile has not completed a call recently, send a 1-token probe with a short
+# timeout; on a hang rebuild the sampling clients and keep the session.
+PROBE_AFTER_IDLE = float(os.environ.get("CODEQA_TINKER_PROBE_IDLE", "120"))
+PROBE_TIMEOUT = float(os.environ.get("CODEQA_TINKER_PROBE_TIMEOUT", "20"))
+_tinker_last_ok: dict[str, float] = {}
+
+
+def mark_tinker_ok(name: str) -> None:
+    _tinker_last_ok[name] = time.time()
+
+
+async def probe_tinker(client: ModelClient) -> bool:
+    """One-token sample on the client's cached sampling session. False = hung or failed."""
+    import tinker
+    try:
+        await asyncio.wait_for(
+            client._sc.sample_async(prompt=tinker.ModelInput.from_ints([client.tokenizer.eos_token_id or 0]), num_samples=1,  # type: ignore[attr-defined]
+                                    sampling_params=tinker.SamplingParams(max_tokens=1, temperature=0.0)),
+            timeout=PROBE_TIMEOUT)
+        return True
+    except Exception as e:  # noqa: BLE001 — any failure means rebuild
+        log(f"[api] tinker probe failed for {client.profile.name}: {type(e).__name__}: {str(e)[:120]}")
+        return False
+
+
+def rebuild_sampling_client(name: str) -> None:
+    """Drop this profile's client and the SDK's cached sampling clients; the session (and its heartbeat) stay."""
+    from codeqa.clients import tinker as tk
+    _clients.pop(name, None)
+    tk.sampling_client.cache_clear()
+    log(f"[api] rebuilt the sampling client for {name}")
+
+
+async def ensure_tinker_alive(name: str, profile: EndpointProfile) -> ModelClient:
+    """The client for `name`, on a sampling client that answered a probe if the profile has been idle for PROBE_AFTER_IDLE."""
+    client = await client_for(name)
+    if profile.kind != "tinker" or time.time() - _tinker_last_ok.get(name, 0.0) < PROBE_AFTER_IDLE:
+        return client
+    if await probe_tinker(client):
+        mark_tinker_ok(name)
+        return client
+    rebuild_sampling_client(name)
+    return await client_for(name)
+
+
 async def _warm_clients() -> None:
     for name, p in load_profiles().items():
         if p.kind != "tinker":
@@ -234,7 +303,7 @@ def profile_row(p: EndpointProfile, from_checkpoints: bool = False) -> dict[str,
         if m:
             label, note = "Qwen3.5-4B, trained", f"{m['run']}, step {m['step']}"
         elif p.model.startswith("Qwen/"):
-            label, note = "Qwen3.5-4B, untrained", "step 0"
+            label, note = f"{p.model.split('/', 1)[1]}, untrained", "step 0"
     elif p.kind == "openai":
         label, note = "Qwen3.5-4B, served", "vLLM on Modal"
     if from_checkpoints:
@@ -272,8 +341,14 @@ async def episode_events(req: Ask) -> AsyncIterator[SSEEvent]:
     clock = {"t0": time.time()}  # reset when the episode starts, so `t` matches the driver's stats.seconds
     timing = {"model": 0.0, "tools": 0.0, "mark": 0.0, "open_call": None}  # seconds; `mark` = when the model last got control
 
+    state = {"dead_session": False, "rerun": False}
+
     async def on_event(ev: SSEEvent) -> None:
         if ev.type in ("citations", "done"):
+            return
+        if ev.type == "error" and is_dead_session(str(ev.payload.get("message", ""))) and not state["rerun"]:
+            state["dead_session"] = True   # swallowed, with the rest of this attempt: the episode is re-run on a fresh session
+        if state["dead_session"] and not state["rerun"]:
             return
         now = time.time() - clock["t0"]
         # Model time runs from the last tool result (or the start) to the first event the model produces next.
@@ -295,10 +370,20 @@ async def episode_events(req: Ask) -> AsyncIterator[SSEEvent]:
         try:
             profile = resolve_profile(req.profile)
             env = RepoEnv.from_question(req.repo_id, req.question, profile, task_type=req.task_type)
-            client = await client_for(req.profile)
+            client = await ensure_tinker_alive(req.profile, profile)
             clock["t0"] = time.time()
             timing["mark"] = 0.0
             trace = await asyncio.wait_for(run_episode(env, client, on_event, temperature=req.temperature), timeout=ASK_TIMEOUT)
+            if state["dead_session"]:
+                # Tinker ended the session under us (heartbeats missed, or ended from the console). Nothing was
+                # answered on the old one, so open a fresh session and run the same episode once more.
+                reset_tinker_session()
+                env = RepoEnv.from_question(req.repo_id, req.question, profile, task_type=req.task_type)
+                client = await client_for(req.profile)
+                clock["t0"] = time.time()
+                timing.update(model=0.0, tools=0.0, mark=0.0, open_call=None)
+                state["rerun"] = True
+                trace = await asyncio.wait_for(run_episode(env, client, on_event, temperature=req.temperature), timeout=ASK_TIMEOUT)
             # Format verdict, the same gates the grader applies first.
             fmt_ok, fmt_why = format_gate(trace.answer, trace, env.budget)
             cit_ok, cit_why = citations_parse_gate(trace.answer) if trace.answer else (False, "no final answer")
@@ -311,6 +396,8 @@ async def episode_events(req: Ask) -> AsyncIterator[SSEEvent]:
                                                                     "t": round(time.time() - clock["t0"], 3)}))
             elif trace.stats.stop_reason != "error":
                 await queue.put(SSEEvent(type="error", payload={"message": f"The agent stopped without answering ({trace.stats.stop_reason})."}))
+            if profile.kind == "tinker" and trace.stats.stop_reason != "error":
+                mark_tinker_ok(req.profile)
             out = save_trace(trace, run=TRACE_RUN)
             log(f"[api] ask {req.profile} {req.repo_id}: {trace.stats.tool_calls} calls, {trace.stats.seconds}s, stop={trace.stats.stop_reason} -> {out}")
         except FileNotFoundError as e:

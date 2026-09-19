@@ -96,7 +96,7 @@ def test_read_file_range_cap_and_errors(t):
     assert out.endswith("(total 1536 lines)")
     assert t.files_read == [Span(path="src/flask/app.py", start=81, end=85)]
     big = call(t.read_file, path="src/flask/app.py", start=1, end=1000)
-    assert "continue from L151" in big and t.files_read[-1] == Span(path="src/flask/app.py", start=1, end=150)
+    assert "continue from L81" in big and t.files_read[-1] == Span(path="src/flask/app.py", start=1, end=80)
     tail = call(t.read_file, path="src/flask/app.py", start=1530)
     assert "L1536 |" in tail and t.files_read[-1].end == 1536
     typo = call(t.read_file, path="src/flask/appp.py", start=1, end=5)

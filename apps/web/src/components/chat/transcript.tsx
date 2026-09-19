@@ -54,7 +54,7 @@ export function Transcript({ episode, onOpen, className }: { episode: Episode; o
                 >
                   <Check className="size-3.5 text-verified" strokeWidth={3} aria-hidden />
                   Researched in {calls.length} {calls.length === 1 ? 'call' : 'calls'}
-                  {episode.stats ? `, ${episode.stats.seconds.toFixed(1)} s` : ''}
+                  {typeof episode.stats?.seconds === 'number' ? `, ${episode.stats.seconds.toFixed(1)} s` : ''}
                   <ChevronRight className={cn('size-3.5 transition-transform', showSteps && 'rotate-90')} aria-hidden />
                 </button>
                 {showSteps && <Activity rows={episode.rows} running={false} onOpen={onOpen} className="mb-4" />}

@@ -52,7 +52,7 @@ export type SSEEvent =
   | { type: 'tool_result'; name: ToolName; summary: string; chars: number; text?: string; t?: number }
   | { type: 'answer'; markdown: string; t?: number }
   | { type: 'citations'; items: CitationItem[]; format_ok?: boolean; format_reason?: string; t?: number }
-  | { type: 'stats'; tool_calls: number; prompt_tokens: number; completion_tokens: number; seconds: number; model_seconds?: number; tool_seconds?: number; t?: number }
+  | { type: 'stats'; tool_calls: number; prompt_tokens: number; completion_tokens: number; seconds: number | null; model_seconds?: number; tool_seconds?: number; t?: number }
   | { type: 'done' }
   | { type: 'error'; message: string }
 

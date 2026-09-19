@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Activity, ArrowRight, Columns2, ExternalLink, MessageSquarePlus, PanelLeft, Square } from 'lucide-react'
-import { BracketSpinner, ScanLine } from '@/components/working'
+import { BracketSpinner, ScanLine, useElapsed, waitingText } from '@/components/working'
 import { navigate } from '@/lib/router'
 import { Wordmark } from '@/components/wordmark'
 import { Toaster, toast } from 'sonner'
@@ -145,6 +145,7 @@ export function Workbench() {
 
   const selected = repos.find((r) => r.repo_id === repoId) ?? null
   const running = episode.status === 'running'
+  const elapsed = useElapsed(episode.startedAt, running)
 
   // Green dot on the Workshop button while a training run is writing metrics.
   useEffect(() => {
@@ -341,7 +342,7 @@ export function Workbench() {
                         <ScanLine />
                         <p className="mt-2 flex items-center gap-2 font-mono text-[12px] text-muted-foreground">
                           <BracketSpinner />
-                          {(() => { const n = episode.rows.filter((r) => r.kind === 'call').length; return n === 0 ? 'reading the repository map' : `researching, ${n} ${n === 1 ? 'call' : 'calls'} so far` })()}
+                          {waitingText(elapsed, episode.rows.filter((r) => r.kind === 'call').length)}
                         </p>
                       </div>
                     )}

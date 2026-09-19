@@ -40,7 +40,11 @@ _BLOCK = [
 ]
 
 
+STDERR_NULL = re.compile(r"\s*2>\s*/dev/null")   # harmless read-only idiom; the model uses it constantly (13 % of commands were blocked for it)
+
+
 def precheck(command: str) -> str | None:
+    command = STDERR_NULL.sub("", command)
     cmd = command.strip()
     if not cmd:
         return "empty command"

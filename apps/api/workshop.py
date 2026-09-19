@@ -131,8 +131,19 @@ def _config_summary(cfg: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _final_eval(name: str) -> tuple[Path | None, dict[str, Any]]:
+    """The arm's final temperature-0.2 eval of the last checkpoint (`data/evals/<profile>-<run>-step<N>/fast_t02/results.json`).
+    The in-loop evaluator never fires on the last step, so this is the held-out point for step N."""
+    hits = sorted(paths.EVALS.glob(f"*-{name}-step*/fast_t02/results.json"))
+    if not hits:
+        return None, {}
+    d = read_json(hits[-1], {}) or {}
+    return hits[-1], (d.get("summary") or d)
+
+
 def _run_metrics(name: str) -> list[dict[str, Any]]:
     p = run_dir(name) / "metrics.jsonl"
+    fe_path, fe = _final_eval(name)
 
     def build():
         rows = []
@@ -140,9 +151,16 @@ def _run_metrics(name: str) -> list[dict[str, Any]]:
             keep = {k: v for k, v in r.items() if k == "step" or k.startswith(METRIC_PREFIXES)}
             keep = {k: (None if isinstance(v, float) and not math.isfinite(v) else v) for k, v in keep.items()}
             rows.append(keep)
+        if rows and fe:     # the final eval measures the checkpoint AFTER the last step: x = steps completed, like the in-loop points (0, 8, ...)
+            extra: dict[str, Any] = {"step": int(rows[-1].get("step", len(rows) - 1)) + 1, "eval/fast/final_t02": 1.0}
+            for src, dst in (("reward", "reward"), ("correct_rate", "correct"), ("tool_calls", "tool_calls"), ("prompt_tokens", "prompt_tokens"),
+                             ("completion_tokens", "completion_tokens"), ("citations_grounded", "citations_grounded"), ("correctness", "correctness")):
+                if isinstance(fe.get(src), (int, float)):
+                    extra[f"eval/fast/env/all/{dst}"] = float(fe[src])
+            rows.append(extra)
         return rows
 
-    return cached(f"metrics:{name}", p, build)
+    return cached(f"metrics:{name}:{_mtime(fe_path) if fe_path else 0}", p, build)
 
 
 def run_row(name: str) -> dict[str, Any] | None:
@@ -162,7 +180,7 @@ def run_row(name: str) -> dict[str, Any] | None:
         "variant": meta.get("variant"),
         "planned_steps": planned,
         "reward_setting": meta.get("reward"),
-        "steps": len(rows),
+        "steps": sum(1 for r in rows if any(k.startswith("env/") for k in r)),    # training rows only (a final-eval row carries no env/ keys)
         "started": _mtime(cfg_p) if cfg_p.exists() else None,
         "updated": last if last > 0 else None,
         "live": last > 0 and _is_live(name, len(rows), last, planned),
@@ -601,6 +619,18 @@ def _light_trace_stats(p: Path) -> dict[str, Any]:
     return {**st, "has_citations": "[" in (d.get("answer") or "") and ":L" in (d.get("answer") or ""), "task_id": d.get("task_id"), "profile": d.get("profile")}
 
 
+def _groups_map(run: str, n: int) -> dict[int, dict[str, Any]]:
+    """iteration_N/groups.json (written by the trainer since 2026-09-20): group_idx -> task fields. Empty for older runs."""
+    p = run_dir(run) / f"iteration_{n:06d}" / "groups.json"
+    if not p.exists():
+        return {}
+    try:
+        rows = cached(f"groups:{run}:{n}", p, lambda: json.loads(p.read_text()))
+        return {int(r["group_idx"]): r for r in rows}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
 def all_trace_rows() -> list[dict[str, Any]]:
     tasks = _task_index()
     rows: list[dict[str, Any]] = []
@@ -632,14 +662,16 @@ def all_trace_rows() -> list[dict[str, Any]]:
             for p in sorted(run.glob("iteration_*/train_rollout_summaries.jsonl")):
                 n = int(p.parent.name.split("_")[1])
                 rollouts = cached(f"iter:{run.name}:{n}", p, lambda p=p: read_jsonl(p))
+                gmap = _groups_map(run.name, n)
                 for r in rollouts:
                     tm = r.get("trajectory_metrics", {})
                     tags = r.get("tags", [])
                     ans = _answer_excerpt(r, 100000)
-                    task = {"source": tags[0] if tags else None, "task_type": tags[1] if len(tags) > 1 else None, "question": ""}
+                    ginfo = gmap.get(int(r.get("group_idx", -1)), {})
+                    task = tasks.get(ginfo.get("task_id", "")) or {"source": tags[0] if tags else None, "task_type": tags[1] if len(tags) > 1 else None, "question": ginfo.get("question", "")}
                     stats = {"stop_reason": next((k[5:] for k in ("stop_answer", "stop_max_turns", "stop_budget", "stop_overflow", "stop_parse_error", "stop_error") if tm.get(k)), None),
                              "turns": tm.get("turns"), "tool_calls": tm.get("tool_calls"), "prompt_tokens": tm.get("prompt_tokens")}
-                    rows.append(_list_row(f"rollout/{run.name}/{n}/{r.get('group_idx', 0)}/{r.get('traj_idx', 0)}", f"group {r.get('group_idx', 0)}",
+                    rows.append(_list_row(f"rollout/{run.name}/{n}/{r.get('group_idx', 0)}/{r.get('traj_idx', 0)}", ginfo.get("task_id") or f"group {r.get('group_idx', 0)}",
                                           f"train:{run.name}@{r.get('sampling_client_step', n)}", f"train:{run.name}", stats, task, r.get("total_reward"),
                                           "[" in ans and ":L" in ans, _mtime(p)))
     return rows
@@ -715,9 +747,11 @@ def trace_detail(trace_id: str) -> dict[str, Any]:
         # The rollout summary does not carry task_id or repo; the question is the first user message if logged.
         stats = next(e for e in events if e["type"] == "stats")
         grade = _grade_from_metrics(tm, notes=f"training rollout, sampled at step {r.get('sampling_client_step', n)}")
-        return {"id": trace_id, "kind": "rollout", "run": f"train:{run}", "task_id": f"group {g}", "profile": f"train:{run}@{r.get('sampling_client_step', n)}",
-                "task": {"source": tags[0] if tags else None, "task_type": tags[1] if len(tags) > 1 else None}, "repo_id": None,
-                "question": "", "events": events, "stats": stats, "answer": answer, "grade": grade, "citations": [],
+        ginfo = _groups_map(run, n).get(g, {})
+        task_full = _task_index().get(ginfo.get("task_id", ""))
+        return {"id": trace_id, "kind": "rollout", "run": f"train:{run}", "task_id": ginfo.get("task_id") or f"group {g}", "profile": f"train:{run}@{r.get('sampling_client_step', n)}",
+                "task": task_full or {"source": tags[0] if tags else None, "task_type": tags[1] if len(tags) > 1 else None}, "repo_id": ginfo.get("repo_id"),
+                "question": ginfo.get("question", ""), "events": events, "stats": stats, "answer": answer, "grade": grade, "citations": [],
                 "messages": rollout_messages(r), "messages_note": "Training rollout summaries log each turn's generation and tool results, not the system and user prompts; ob_len is the size of the prompt the model saw at that turn."}
     raise HTTPException(404, f"bad trace id {trace_id}")
 

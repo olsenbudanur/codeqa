@@ -16,6 +16,7 @@ async function get<T>(path: string, params?: Record<string, string | number | bo
 }
 
 export interface RunConfig {
+  max_context?: number
   learning_rate?: number
   model_name?: string
   group_size?: number
@@ -238,3 +239,12 @@ export const fmtNum = (n: number | null | undefined, digits = 2): string =>
   n === null || n === undefined || Number.isNaN(n) ? '–' : Math.abs(n) >= 1000 ? `${(n / 1000).toFixed(1)}k` : n.toFixed(digits)
 export const fmtPct = (n: number | null | undefined): string => (n === null || n === undefined ? '–' : `${Math.round(n * 100)}%`)
 export const fmtWhen = (ts: number | null): string => (ts ? new Date(ts * 1000).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '–')
+
+// Token counts: 1.4k, 145k, 10.4M; whole numbers under a thousand.
+export function fmtTokens(v: number | null | undefined): string {
+  if (v === null || v === undefined || Number.isNaN(v)) return '–'
+  const a = Math.abs(v)
+  if (a >= 1e6) return `${(v / 1e6).toFixed(1)}M`
+  if (a >= 1e3) return `${(v / 1e3).toFixed(a >= 1e5 ? 0 : 1)}k`
+  return String(Math.round(v))
+}

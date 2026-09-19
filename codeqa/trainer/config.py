@@ -63,6 +63,10 @@ def build_config(spec: RunSpec) -> train.Config:
     extra = dict(spec.extra)
     if extra.get("kl_penalty_coef", 0) > 0 and "kl_reference_config" not in extra:
         extra["kl_reference_config"] = train.KLReferenceConfig(base_model=base)   # KL to the untrained base, logged as kl_ref/*
+    # A hung rollout (Tinker pausing a sampler) must not freeze the step silently: cancel after 10 min, retry with a fresh
+    # env, drop the group if it fails again (docs/research/modal_stall.md; lead, 2026-09-19).
+    from tinker_cookbook.rl.rollout_strategy import RetryOnFailure
+    extra.setdefault("rollout_error_tolerance", RetryOnFailure(max_retries=8, per_rollout_timeout=1200))
     return train.Config(
         model_name=base,
         recipe_name="codeqa_rl",

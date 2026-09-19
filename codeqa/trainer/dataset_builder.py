@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+import os
 import random
 from collections.abc import Sequence
 from pathlib import Path
@@ -84,11 +85,14 @@ class CodeQAGroupBuilder(EnvGroupBuilder):
                 env.captured_history = list(history)
                 return 0.0, {}                                    # real reward comes from compute_group_rewards
 
-            out.append(renv.make_cookbook_env(_capture))
+            cb = renv.make_cookbook_env(_capture)
+            cb._codeqa_renv = renv            # the cookbook may return envs in COMPLETION order (RetryOnFailure); pair by object, never by index
+            out.append(cb)
             self._envs.append(renv)
         return out
 
     def _trace(self, renv: RepoEnv, cb_env: Env, traj: Trajectory) -> Trace:
+        renv = getattr(cb_env, "_codeqa_renv", renv)              # 2026-09-19: index pairing scrambled rewards across a group (LOG 23:05)
         history = getattr(renv, "captured_history", None)
         if history is None:                                       # reward_fn skipped (parse error / overflow policy)
             inner = getattr(cb_env, "message_env", None)
@@ -107,7 +111,13 @@ class CodeQAGroupBuilder(EnvGroupBuilder):
             return await grade(self.task, trace, variant=self.variant, judge_client=judge_client_for(self.judge_model, self.offline_judge))
 
     async def compute_group_rewards(self, trajectory_group: list[Trajectory], env_group: Sequence[Env]) -> list[tuple[float, Metrics]]:
-        traces = [self._trace(renv, cb, traj) for renv, cb, traj in zip(self._envs, env_group, trajectory_group)]
+        if len(env_group) != len(trajectory_group):
+            raise RuntimeError(f"env/trajectory count mismatch: {len(env_group)} vs {len(trajectory_group)}")
+        traces = [self._trace(getattr(cb, "_codeqa_renv", renv), cb, traj)
+                  for renv, cb, traj in zip(list(self._envs) + [None] * len(env_group), env_group, trajectory_group)]
+        mismatched = sum(abs(t.stats.turns - len(traj.transitions)) > 1 for t, traj in zip(traces, trajectory_group))   # +1 = a truncated turn the cookbook continued past; a scramble is off by many
+        if mismatched:                                             # must stay 0: a trace that does not describe its trajectory = scrambled credit
+            logger.warning("compute_group_rewards: %d/%d traces do not match their trajectory (turns vs transitions)", mismatched, len(traces))
         results = await asyncio.gather(*(self._grade(t) for t in traces))
         penalties = [no_answer_penalty(t.stats.stop_reason, r.gate_failed) for t, r in zip(traces, results)]
         credits = [0.0 if math.isnan(r.reward) else grounded_credit(r.reward, r.gate_failed, self.grounded_credit) for r in results]
@@ -125,6 +135,7 @@ class CodeQAGroupBuilder(EnvGroupBuilder):
             m["grounded_credit"] = float(c != 0.0)
             m["length_factor_applied"] = lf
             m["reward_shaped"] = total
+            m["pairing_mismatch"] = float(mismatched) / max(len(traces), 1)   # 0.0 when every trace describes its own trajectory
             m.update(gm)
             out.append((total, m))
         return out
@@ -144,7 +155,25 @@ class CodeQADataset(RLDataset):
 
     def get_batch(self, index: int) -> Sequence[EnvGroupBuilder]:
         i = index % max(self.batches_per_epoch, 1)
-        return self.builders[i * self.batch_size:(i + 1) * self.batch_size]
+        batch = self.builders[i * self.batch_size:(i + 1) * self.batch_size]
+        self._write_groups(index, batch)
+        return batch
+
+    def _write_groups(self, index: int, batch: Sequence[EnvGroupBuilder]) -> None:
+        """Sidecar `iteration_N/groups.json` (group_idx -> task) so the Workshop can show the question behind a rollout.
+        Written only when CODEQA_GROUPS_DIR points at the run's log dir (scripts/arm.py sets it)."""
+        import json
+        root = os.environ.get("CODEQA_GROUPS_DIR")
+        if not root:
+            return
+        try:
+            p = Path(root) / f"iteration_{index:06d}" / "groups.json"
+            p.parent.mkdir(parents=True, exist_ok=True)
+            rows = [{"group_idx": g, "task_id": b.task.task_id, "source": b.task.source, "task_type": b.task.task_type,
+                     "repo_id": b.task.repo_id, "question": b.task.question} for g, b in enumerate(batch) if hasattr(b, "task")]
+            p.write_text(json.dumps(rows))
+        except Exception as e:  # noqa: BLE001
+            logger.warning("groups.json not written for iteration %d: %s", index, e)
 
     def __len__(self) -> int:
         return self.batches_per_epoch * self.epochs
@@ -170,6 +199,24 @@ def load_tasks(path: Path, max_tasks: int | None = None, seed: int = 0, shuffle:
     return ok[:max_tasks] if max_tasks else ok
 
 
+def stratified_order(tasks: list[Task]) -> list[Task]:
+    """Proportional interleave over task types (each type's own order preserved): every batch reflects the global
+    type mix instead of the draw. At each step the type furthest behind its share goes next (Bresenham-style)."""
+    from collections import defaultdict
+    by: dict[str, list[Task]] = defaultdict(list)
+    for t in tasks:
+        by[t.task_type].append(t)
+    total = {k: len(v) for k, v in by.items()}
+    taken = {k: 0 for k in by}
+    out: list[Task] = []
+    n = len(tasks)
+    for _ in range(n):
+        k = min((k for k in by if taken[k] < total[k]), key=lambda k: (taken[k] + 1) / total[k])
+        out.append(by[k][taken[k]])
+        taken[k] += 1
+    return out
+
+
 def builders_for(tasks: list[Task], profile_name: str, group_size: int, variant: str, judge_model: str | None,
                  offline_judge: bool = False, grounded_credit: float = 0.05, length_shaping: bool = True) -> list[EnvGroupBuilder]:
     return [CodeQAGroupBuilder(t, profile_name, group_size, variant, judge_model, offline_judge, grounded_credit, length_shaping) for t in tasks]
@@ -189,11 +236,14 @@ class CodeQADatasetBuilder(RLDatasetBuilder):
     epochs: int = 1
     grounded_credit: float = 0.05        # 0 disables the shaping floor for gate-passing wrong answers
     length_shaping: bool = True          # multiply the trained reward by min(1, cap / answer tokens); evals never do
+    stratify: bool = True                # every batch gets the same task-type mix (2026-09-20: 8-task batches swung reward by ±0.15 on the draw alone)
 
     async def __call__(self) -> tuple[RLDataset, RLDataset | None]:
         tasks = load_tasks(Path(self.tasks_path), self.max_tasks, self.seed)
         if not tasks:
             raise RuntimeError(f"no usable tasks in {self.tasks_path}")
+        if self.stratify:
+            tasks = stratified_order(tasks)
         builders = builders_for(tasks, self.profile_name, self.group_size, self.variant, self.judge_model, self.offline_judge, self.grounded_credit, self.length_shaping)
         ds = CodeQADataset(builders, self.groups_per_batch, self.epochs)
         logger.info("dataset: %d tasks -> %d batches of up to %d groups x %d (%d epochs)", len(tasks), len(ds),

@@ -28,7 +28,7 @@ export interface Episode {
   rows: LogRow[]
   answer?: string
   citations?: CitationItem[]
-  stats?: { tool_calls: number; prompt_tokens: number; completion_tokens: number; seconds: number; model_seconds?: number; tool_seconds?: number }
+  stats?: { tool_calls: number; prompt_tokens: number; completion_tokens: number; seconds: number | null; model_seconds?: number; tool_seconds?: number }
   format?: { ok: boolean; reason: string }
   error?: string
   startedAt?: number
