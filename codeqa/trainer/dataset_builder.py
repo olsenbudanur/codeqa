@@ -27,7 +27,8 @@ from codeqa.shared import paths
 from codeqa.shared.contracts import GradeResult, Task, Trace
 from codeqa.shared.jsonl import read_all
 from codeqa.shared.profiles import get_profile
-from codeqa.trainer.group_rewards import fill_judge_errors, grounded_credit, group_metrics, nan_safe, no_answer_penalty
+from codeqa.trainer.group_rewards import (FORCED_ANSWER_FACTOR, fill_judge_errors, grounded_credit, group_metrics, nan_safe,
+                                          no_answer_penalty)
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +63,8 @@ class CodeQAGroupBuilder(EnvGroupBuilder):
 
     def __init__(self, task: Task, profile_name: str, group_size: int, variant: str = "none",
                  judge_model: str | None = None, offline_judge: bool = False, grounded_credit: float = 0.05,
-                 length_shaping: bool = True):
+                 length_shaping: bool = True, reward_version: str | None = None):
+        self.reward_version = reward_version        # None = CODEQA_REWARD; the held-out evaluator pins "v2"
         self.task = task
         self.grounded_credit = grounded_credit
         self.length_shaping = length_shaping
@@ -108,7 +110,8 @@ class CodeQAGroupBuilder(EnvGroupBuilder):
 
     async def _grade(self, trace: Trace) -> GradeResult:
         async with _JUDGE_SEMAPHORE:
-            return await grade(self.task, trace, variant=self.variant, judge_client=judge_client_for(self.judge_model, self.offline_judge))
+            return await grade(self.task, trace, variant=self.variant, judge_client=judge_client_for(self.judge_model, self.offline_judge),
+                               reward=self.reward_version)
 
     async def compute_group_rewards(self, trajectory_group: list[Trajectory], env_group: Sequence[Env]) -> list[tuple[float, Metrics]]:
         if len(env_group) != len(trajectory_group):
@@ -123,8 +126,9 @@ class CodeQAGroupBuilder(EnvGroupBuilder):
         credits = [0.0 if math.isnan(r.reward) else grounded_credit(r.reward, r.gate_failed, self.grounded_credit) for r in results]
         budget = self.task.effective_budget()
         lengths = [gates.length_factor(gates.extract_answer(t), budget, self.task.task_type) if self.length_shaping else 1.0 for t in traces]
-        # shaped = (grader reward + grounded credit) x length factor + stall penalty; the grader's reward stays length-free
-        rewards = [(nan_safe(r.reward) + c) * lf + p for r, p, c, lf in zip(results, penalties, credits, lengths)]
+        forced = [FORCED_ANSWER_FACTOR if t.stats.forced_answer else 1.0 for t in traces]     # v3: a forced final answer keeps 90 %
+        # shaped = (grader reward + grounded credit) x length factor x forced factor + stall penalty; the grader's reward stays length-free
+        rewards = [(nan_safe(r.reward) + c) * lf * ff + p for r, p, c, lf, ff in zip(results, penalties, credits, lengths, forced)]
         errored = [math.isnan(r.reward) for r in results]
         _, totals = fill_judge_errors(rewards, errored)
         gm = group_metrics(totals, errored, [tool_sequence(t) for t in traces])
@@ -134,6 +138,7 @@ class CodeQAGroupBuilder(EnvGroupBuilder):
             m["no_answer_penalty"] = float(p != 0.0)
             m["grounded_credit"] = float(c != 0.0)
             m["length_factor_applied"] = lf
+            m["forced_factor_applied"] = float(t.stats.forced_answer)
             m["reward_shaped"] = total
             m["pairing_mismatch"] = float(mismatched) / max(len(traces), 1)   # 0.0 when every trace describes its own trajectory
             m.update(gm)
@@ -147,16 +152,19 @@ class CodeQAGroupBuilder(EnvGroupBuilder):
 class CodeQADataset(RLDataset):
     """Batches of `batch_size` groups; `epochs` passes over the tasks (so `max_steps` can exceed one pass)."""
 
-    def __init__(self, builders: list[EnvGroupBuilder], batch_size: int, epochs: int = 1):
+    def __init__(self, builders: list[EnvGroupBuilder], batch_size: int, epochs: int = 1, publish_step: bool = True):
         self.builders = builders
         self.batch_size = batch_size
         self.epochs = epochs
+        self.publish_step = publish_step          # the held-out evaluator's dataset must not reset CODEQA_TRAIN_STEP
         self.batches_per_epoch = max(math.ceil(len(builders) / batch_size), 1) if builders else 0
 
     def get_batch(self, index: int) -> Sequence[EnvGroupBuilder]:
         i = index % max(self.batches_per_epoch, 1)
         batch = self.builders[i * self.batch_size:(i + 1) * self.batch_size]
         self._write_groups(index, batch)
+        if self.publish_step:                                   # v3 reward: the efficiency weight ramps in by training step
+            os.environ["CODEQA_TRAIN_STEP"] = str(index)
         return batch
 
     def _write_groups(self, index: int, batch: Sequence[EnvGroupBuilder]) -> None:
@@ -229,8 +237,10 @@ def stratified_order(tasks: list[Task]) -> list[Task]:
 
 
 def builders_for(tasks: list[Task], profile_name: str, group_size: int, variant: str, judge_model: str | None,
-                 offline_judge: bool = False, grounded_credit: float = 0.05, length_shaping: bool = True) -> list[EnvGroupBuilder]:
-    return [CodeQAGroupBuilder(t, profile_name, group_size, variant, judge_model, offline_judge, grounded_credit, length_shaping) for t in tasks]
+                 offline_judge: bool = False, grounded_credit: float = 0.05, length_shaping: bool = True,
+                 reward_version: str | None = None) -> list[EnvGroupBuilder]:
+    return [CodeQAGroupBuilder(t, profile_name, group_size, variant, judge_model, offline_judge, grounded_credit, length_shaping, reward_version)
+            for t in tasks]
 
 
 @chz.chz

@@ -11,6 +11,7 @@ from typing import Any, Awaitable, Callable
 
 from tinker_cookbook.tool_use.types import ToolInput
 
+from codeqa.agent import rounds
 from codeqa.agent.env import RepoEnv
 from codeqa.clients.base import ModelClient
 from codeqa.shared import paths
@@ -83,6 +84,8 @@ async def run_episode(env: RepoEnv, client: ModelClient, on_event: OnEvent = Non
     answer = ""
     stop: str = "max_turns"
     known_paths = {f.path for f in env.tools_obj.manifest.files}
+    rounds_mode = budget.rounds_mode                    # v3: rounds, context cap, forced final answer (rounds.py / tool_env.py)
+    forced = False
     try:
         for turn in range(1, budget.max_turns + 1):
             stats.turns = turn
@@ -92,6 +95,7 @@ async def run_episode(env: RepoEnv, client: ModelClient, on_event: OnEvent = Non
                                                      temperature=temperature), timeout=CHAT_TIMEOUT)
             stats.prompt_tokens += int(msg.usage.get("prompt_tokens", 0))
             stats.completion_tokens += int(msg.usage.get("completion_tokens", 0))
+            context_tokens = int(msg.usage.get("prompt_tokens", 0)) + int(msg.usage.get("completion_tokens", 0))
             messages.append(msg)
             if msg.thinking:
                 await _emit(on_event, "thinking", text=msg.thinking)
@@ -103,9 +107,17 @@ async def run_episode(env: RepoEnv, client: ModelClient, on_event: OnEvent = Non
                 answer = msg.content
                 stop = "answer"
                 break
-            remaining = budget.max_tool_calls - env.tool_calls_made
-            calls = msg.tool_calls[: max(remaining, 0)]
-            dropped = len(msg.tool_calls) - len(calls)
+            if forced:                                   # the forced turn still called tools: no answer
+                stop = "max_turns"
+                break
+            if rounds_mode:
+                calls, dropped = rounds.cap_calls(msg.tool_calls, budget.max_commands_per_turn)
+                remaining = 1
+            else:
+                remaining = budget.max_tool_calls - env.tool_calls_made
+                calls = msg.tool_calls[: max(remaining, 0)]
+                dropped = len(msg.tool_calls) - len(calls)
+            outputs: list[tuple[Any, str]] = []
             for i, tc in enumerate(calls):
                 tc.call_id = tc.call_id or f"call_{turn}_{i}"
                 await _emit(on_event, "tool_call", name=tc.name, args=tc.args, why=_first_sentence(msg.thinking))
@@ -118,9 +130,23 @@ async def run_episode(env: RepoEnv, client: ModelClient, on_event: OnEvent = Non
                     result = await tool.run(ToolInput(arguments=tc.args, call_id=tc.call_id))
                     text = "".join(p.get("text", "") if isinstance(p, dict) else str(p) for p in result.messages[0]["content"]) \
                         if isinstance(result.messages[0]["content"], list) else str(result.messages[0]["content"])
+                outputs.append((tc, text))
+            if rounds_mode and outputs:
+                texts = rounds.cap_outputs([t for _, t in outputs], 12000)
+                outputs = [(tc, t) for (tc, _), t in zip(outputs, texts)]
+                if dropped:
+                    outputs[-1] = (outputs[-1][0], outputs[-1][1] + rounds.COMMAND_CAP_NOTE.format(dropped=dropped, cap=budget.max_commands_per_turn))
+                context_tokens += sum(rounds.approx_tokens(t) for _, t in outputs)
+                outputs[-1] = (outputs[-1][0], outputs[-1][1] + rounds.trailer(context_tokens, budget.max_context_tokens, budget.max_turns - turn))
+            for tc, text in outputs:
                 messages.append(Message(role="tool", name=tc.name, content=text, call_id=tc.call_id))
                 await _emit(on_event, "tool_result", name=tc.name, summary=text.splitlines()[0][:160] if text else "", chars=len(text),
                             error=text.startswith("ERROR"))
+            if rounds_mode:
+                if rounds.should_force(context_tokens, budget.max_context_tokens, turn, budget.max_turns):
+                    messages.append(Message(role="user", content=rounds.FORCED_PROMPT))
+                    forced = True
+                continue
             if dropped:
                 # a plain user message: it answers no tool_use, so it must not be a tool-role message (Anthropic rejects
                 # orphan tool_result ids; Qwen renders user and tool blocks the same way)
@@ -137,6 +163,7 @@ async def run_episode(env: RepoEnv, client: ModelClient, on_event: OnEvent = Non
     stats.tool_errors = env.tool_errors
     stats.files_read = env.files_read()
     stats.stop_reason = stop  # type: ignore[assignment]
+    stats.forced_answer = bool(forced and answer)
     stats.seconds = round(time.time() - t0, 2)
     trace = Trace(task_id=env.task.task_id, profile=client.profile.name, messages=messages, stats=stats, answer=answer)
     if answer:

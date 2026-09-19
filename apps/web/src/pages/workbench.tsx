@@ -57,7 +57,7 @@ export function Workbench() {
       .listProfiles()
       .then((p) => {
         setProfiles(p)
-        const base = p.find((x) => x.name === 'qwen4b-base') ?? p.find((x) => x.kind === 'tinker') ?? p[0]
+        const base = p.find((x) => x.default) ?? p.find((x) => x.name === 'qwen4b-base') ?? p.find((x) => x.kind === 'tinker') ?? p[0]
         setProfile((cur) => cur || base?.name || '')
       })
       .catch((e: Error) => toast.error(`Could not load models: ${e.message}`))

@@ -25,8 +25,9 @@ class HeldoutEvaluator(RLTestSetEvaluator):
                  judge_model: str | None = None, offline_judge: bool = False, max_tasks: int | None = None,
                  temperature: float = EVAL_TEMPERATURE):
         tasks = load_tasks(Path(tasks_path), max_tasks, shuffle=False)
-        builders = builders_for(tasks, profile_name, group_size=1, variant=variant, judge_model=judge_model, offline_judge=offline_judge, grounded_credit=0.0, length_shaping=False)   # eval reports the unshaped, length-free reward
-        super().__init__(CodeQADataset(builders, batch_size=max(len(builders), 1)), max_tokens=max_tokens, name=name)
+        builders = builders_for(tasks, profile_name, group_size=1, variant=variant, judge_model=judge_model, offline_judge=offline_judge, grounded_credit=0.0, length_shaping=False,
+                                reward_version="v2")   # eval reports the unshaped, length-free phase-6 reward whatever the training reward is
+        super().__init__(CodeQADataset(builders, batch_size=max(len(builders), 1), publish_step=False), max_tokens=max_tokens, name=name)
         self.temperature = temperature
 
     async def __call__(self, sampling_client: tinker.SamplingClient, *, rollout_summary_export=None, store=None) -> dict[str, float]:

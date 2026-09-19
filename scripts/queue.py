@@ -14,7 +14,17 @@ import subprocess
 import sys
 import time
 
-ARMS = ("full", "lean", "bash", "nogates")
+def _known_arms() -> tuple[str, ...]:
+    """Every arm `scripts.arm` defines (bash16v1, bash24eff, lean16, ...), so a new arm needs no edit here.
+    2026-09-20: a hard-coded tuple silently dropped the phase-6 arm names and ran the default four instead."""
+    try:
+        from scripts.arm import ARMS as arm_table
+        return tuple(arm_table)
+    except Exception:  # noqa: BLE001
+        return ("full", "lean", "bash", "nogates")
+
+
+ARMS = _known_arms()
 PROBE_TIMEOUT = 240          # a new LoRA sampler cold-starts in ~40 s; 60 s was too tight
 PROBE_INTERVAL = 300
 MAX_WAIT = 6 * 3600
@@ -73,10 +83,11 @@ def wait_for_lora_sampling() -> None:
 
 
 def stop_requested() -> bool:
-    """`data/STOP` (on Modal: /data/STOP) asks the queue not to start another arm and the arm to exit at its next step
-    boundary. Create it with `modal volume put codeqa-data <empty file> /STOP`; remove it before the next launch."""
-    from codeqa.shared import paths
-    return (paths.DATA / "STOP").exists()
+    """A stop asks the queue not to start another arm and the arm to exit at its next step boundary. Request it from the
+    laptop with `uv run python -m codeqa.shared.control stop` (a Modal Dict the container reads live; a file put on the
+    volume is NOT seen by a running container, 2026-09-20 14:44). `... clear` before the next launch."""
+    from codeqa.shared.control import stop_requested as _stop
+    return _stop()
 
 
 def _run_arm(arm: str) -> int:
@@ -97,7 +108,11 @@ def _run_arm(arm: str) -> int:
 
 def main(argv: list[str]) -> int:
     canary = "--no-canary" not in argv                     # --no-canary: skip the probe (results sooner; use when the org is known to sample)
-    arms = [a for a in argv if a in ARMS] or ["full", "lean", "bash", "nogates"]
+    requested = [a for a in argv if not a.startswith("--")]
+    unknown = [a for a in requested if a not in ARMS]
+    if unknown:                                            # never fall back to the default four on a typo: fail loudly
+        log(f"unknown arm(s) {unknown}; known: {list(ARMS)}"); return 2
+    arms = requested or ["full", "lean", "bash", "nogates"]
     from codeqa.clients.tinker import _install_session_hygiene
     _install_session_hygiene()
     for i, arm in enumerate(arms):

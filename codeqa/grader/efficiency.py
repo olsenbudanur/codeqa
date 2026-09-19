@@ -83,3 +83,24 @@ def efficiency(stats: TraceStats, budget: Budget, variant: str = "none", prefix_
     if variant == "token_cost":
         return shape(tokens_ratio), False
     return shape(max(calls_ratio, tokens_ratio)), False
+
+
+# ---------------------------------------------------------------------------
+# v3 (2026-09-20): efficiency on the true cost, the sum of prompt + completion tokens over every turn (each turn
+# re-prefills the whole context), excluding the final answer's own tokens so answer length carries no pressure.
+# ---------------------------------------------------------------------------
+TOKEN_SUM_BUDGET = int(_os.environ.get("CODEQA_EFF_TOKEN_BUDGET", "150000"))
+
+
+def token_sum(trace, answer_tokens: int = 0) -> int:
+    turns = [m for m in trace.messages if m.role == "assistant" and m.usage.get("prompt_tokens")]
+    if turns:
+        total = sum(int(m.usage.get("prompt_tokens", 0)) + int(m.usage.get("completion_tokens", 0)) for m in turns)
+    else:
+        total = int(trace.stats.prompt_tokens) + int(trace.stats.completion_tokens)
+    return max(total - answer_tokens, 0)
+
+
+def token_sum_efficiency(trace, answer_tokens: int = 0, budget_tokens: int | None = None) -> float:
+    """shape(total tokens / budget): 1.0 up to FREE_FRACTION of the budget, then linear down to FLOOR at 100 %."""
+    return shape(token_sum(trace, answer_tokens) / max(budget_tokens or TOKEN_SUM_BUDGET, 1))

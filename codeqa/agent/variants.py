@@ -13,7 +13,7 @@ from dataclasses import dataclass
 
 from typing import Literal
 
-from codeqa.agent.prompts import SYSTEM_RULES, SYSTEM_RULES_BASH, SYSTEM_RULES_NOINDEX, rules_for
+from codeqa.agent.prompts import SYSTEM_RULES, SYSTEM_RULES_BASH, SYSTEM_RULES_NOINDEX, rules_for, SYSTEM_RULES_BASH_V3
 
 ENV_VAR = "CODEQA_AGENT_VARIANT"
 MAP_TREE_TOKENS = int(os.environ.get("CODEQA_MAP_TOKENS", "1000"))
@@ -48,6 +48,7 @@ VARIANTS: dict[str, AgentVariant] = {
     "nomap_full": AgentVariant("nomap_full", FIVE, "none", SYSTEM_RULES),                           # old `nomap`: five tools, no map
     "bash": AgentVariant("bash", ("bash",), "tree", SYSTEM_RULES_BASH),                              # one shell tool, tree map kept
     "bash_nomap": AgentVariant("bash_nomap", ("bash",), "none", SYSTEM_RULES_BASH),
+    "bash_v3": AgentVariant("bash_v3", ("bash",), "none", SYSTEM_RULES_BASH_V3),        # 2026-09-20: no index, rounds, context cap, forced answer
 }
 
 

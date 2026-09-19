@@ -109,10 +109,21 @@ class Grading(BaseModel):
         return bool(self.expected_paths or self.expected_symbols or self.expected_literal is not None)
 
 
+UNLIMITED_CALLS = 10**6
+
+
 class Budget(BaseModel):
     max_tool_calls: int = 20
     max_turns: int = 22
     max_answer_tokens: int = 400
+    # v3 harness (2026-09-20, bash_v3): no call limit; the caps are prompt tokens of the next turn and messages. When
+    # max_context_tokens is set, max_tool_calls is effectively unlimited and every message may carry several commands.
+    max_context_tokens: int | None = None
+    max_commands_per_turn: int | None = None
+
+    @property
+    def rounds_mode(self) -> bool:
+        return self.max_context_tokens is not None
 
 
 # Answer caps raised 2026-09-18 evening (decisions.md): at 450 Claude's SWE-QA explain answers failed the format gate
@@ -154,6 +165,11 @@ class Task(BaseModel):
         calls = os.environ.get("CODEQA_CAPS_CALLS")                      # experiment knob: same call cap for every type
         if calls:
             b = Budget(max_tool_calls=int(calls), max_turns=int(calls) + 2, max_answer_tokens=b.max_answer_tokens)
+        ctx = os.environ.get("CODEQA_CAPS_CONTEXT")                      # v3: context cap (prompt tokens) + message cap, no call cap
+        if ctx:
+            b = Budget(max_tool_calls=UNLIMITED_CALLS, max_turns=int(os.environ.get("CODEQA_CAPS_MESSAGES", "24")),
+                       max_answer_tokens=b.max_answer_tokens, max_context_tokens=int(ctx),
+                       max_commands_per_turn=int(os.environ.get("CODEQA_CAPS_COMMANDS", "4")))
         return b
 
 
@@ -191,6 +207,7 @@ class TraceStats(BaseModel):
     files_read: list[Span] = Field(default_factory=list)
     stop_reason: StopReason = "answer"
     seconds: float = 0.0
+    forced_answer: bool = False      # v3: the answer came from the tool-free turn injected when the budget ran out
 
 
 class Trace(BaseModel):

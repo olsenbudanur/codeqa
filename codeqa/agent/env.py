@@ -50,7 +50,8 @@ class RepoEnv:
 
     def initial_messages(self) -> list[Message]:
         return [
-            Message(role="system", content=system_prompt(self.budget.max_tool_calls, self.budget.max_answer_tokens, self.variant.rules, max_turns=self.budget.max_turns)),
+            Message(role="system", content=system_prompt(self.budget.max_tool_calls, self.budget.max_answer_tokens, self.variant.rules, max_turns=self.budget.max_turns,
+                                                         max_context_tokens=self.budget.max_context_tokens, max_commands=self.budget.max_commands_per_turn)),
             Message(role="user", content=user_prompt(self.repo_id, self.repo_map, self.task.question)),
         ]
 
@@ -90,6 +91,15 @@ class RepoEnv:
         async def _reward(history):
             return await reward_fn(history, self)
 
+        if self.budget.rounds_mode:                         # v3: rounds + context cap + forced final answer (tool_env.py)
+            from codeqa.agent.tool_env import build_codeqa_tool_env
+            return build_codeqa_tool_env(
+                renderer=renderer, tools=self.tools(), initial_messages=initial, reward_fn=_reward,
+                max_turns=self.budget.max_turns, max_tool_calls=self.budget.max_tool_calls,
+                max_generation_tokens=max_generation_tokens or self.profile.max_generation_tokens,
+                max_trajectory_tokens=max_trajectory_tokens or self.profile.max_context, model_name=base,
+                context_cap=self.budget.max_context_tokens, commands_per_turn=self.budget.max_commands_per_turn,
+            )
         return build_agent_tool_env(
             renderer=renderer, tools=self.tools(), initial_messages=initial, reward_fn=_reward,
             max_turns=self.budget.max_turns, max_tool_calls=self.budget.max_tool_calls,
@@ -120,7 +130,9 @@ class RepoEnv:
         assistants = [m for m in msgs if m.role == "assistant"]
         last = assistants[-1] if assistants else None
         answer = last.content if last is not None and not last.tool_calls else ""
+        from codeqa.agent.rounds import FORCED_MARK
+        forced = any(m.role == "user" and m.content.startswith(FORCED_MARK) for m in msgs)
         return Trace(task_id=self.task.task_id, profile=self.profile.name, messages=msgs, answer=answer,
                      stats=TraceStats(turns=len(assistants), tool_calls=self.tools_obj.calls, tool_errors=self.tools_obj.errors,
                                       files_read=self.files_read(), stop_reason=self.stop_reason_from(last, len(assistants)),
-                                      seconds=seconds))
+                                      seconds=seconds, forced_answer=bool(forced and answer)))

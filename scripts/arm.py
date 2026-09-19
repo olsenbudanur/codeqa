@@ -23,7 +23,15 @@ ARMS = {  # arm -> (variant, extra env, default steps)
     "bash24": ("bash", {"CODEQA_BASH_EXECUTOR": "modal", "CODEQA_MODAL_SANDBOXES": "16", "CODEQA_CAPS_CALLS": "24"}, 16),
     "bash24eff": ("bash", {"CODEQA_BASH_EXECUTOR": "modal", "CODEQA_MODAL_SANDBOXES": "16", "CODEQA_CAPS_CALLS": "24", "CODEQA_EFF_FREE_FRACTION": "0.33", "CODEQA_ARM_REWARD_VARIANT": "multiplicative"}, 16),
     "bash16v1": ("bash", {"CODEQA_BASH_EXECUTOR": "modal", "CODEQA_MODAL_SANDBOXES": "16", "CODEQA_CAPS_CALLS": "16", "CODEQA_REWARD": "v1"}, 16),   # control: yesterday's reward
-    "lean16": ("lean", {"CODEQA_CAPS_CALLS": "16"}, 16),                                                                                      # product harness under reward v2       # cheap config: lean prefix (1k tree map, 4 tools), merged task set, 8 groups (env overrides below)
+    "lean16": ("lean", {"CODEQA_CAPS_CALLS": "16"}, 16),
+    # phase 7 (2026-09-20 evening): bash only, no index, rounds (<=4 commands/message), 32k context + 24 message caps instead of a
+    # call cap, forced final answer, grep self-healing, trimmed prompt, reward v3 (correctness first; efficiency on the token
+    # sum joins at step 8). Held-out keeps the v2 formula. Launch with CODEQA_ARM_STEPS=24 CODEQA_ARM_EVAL_EVERY=8.
+    "bash_v3": ("bash_v3", {"CODEQA_BASH_EXECUTOR": "modal", "CODEQA_MODAL_SANDBOXES": "16", "CODEQA_BASH_HEAL": "1",
+                            "CODEQA_CAPS_CONTEXT": "32000", "CODEQA_CAPS_MESSAGES": "24", "CODEQA_CAPS_COMMANDS": "4",
+                            "CODEQA_REWARD": "v3", "CODEQA_EFF_WEIGHT": "0.15", "CODEQA_EFF_WEIGHT_FROM_STEP": "8",
+                            "CODEQA_EFF_TOKEN_BUDGET": "150000", "CODEQA_ARM_GROUNDED_CREDIT": "0",
+                            "CODEQA_ARM_STEPS": "24", "CODEQA_ARM_EVAL_EVERY": "8", "CODEQA_SEEN_PIPELINES": "1"}, 24),                                                                                      # product harness under reward v2       # cheap config: lean prefix (1k tree map, 4 tools), merged task set, 8 groups (env overrides below)
 }
 BASE_PROFILE = os.environ.get("CODEQA_ARM_PROFILE", "qwen4b-base")
 BASE_MODEL = {"qwen4b-base": "Qwen/Qwen3.5-4B", "qwen9b-base": "Qwen/Qwen3.5-9B"}[BASE_PROFILE]
@@ -36,7 +44,7 @@ def common() -> list[str]:
             "--profile", BASE_PROFILE,                             # CODEQA_ARM_PROFILE: qwen4b-base (default) | qwen9b-base
             "--group-size", "8", "--groups-per-batch", os.environ.get("CODEQA_ARM_GROUPS", "16"),
             "--lr", "1e-4", "--variant", os.environ.get("CODEQA_ARM_REWARD_VARIANT", "none"), "--eval-tasks", str(paths.TASKS_EVAL / os.environ.get("CODEQA_ARM_EVAL_FILE", "fast.jsonl")), "--eval-every", os.environ.get("CODEQA_ARM_EVAL_EVERY", "10"), "--eval-max-tasks", os.environ.get("CODEQA_ARM_EVAL_TASKS", "60"), "--save-every", "5",
-            "--seed", "0", "--if-exists", "resume",
+            "--seed", "0", "--if-exists", "resume", "--grounded-credit", os.environ.get("CODEQA_ARM_GROUNDED_CREDIT", "0.05"),
             *(["--judge-model", os.environ["CODEQA_ARM_JUDGE"]] if os.environ.get("CODEQA_ARM_JUDGE") else [])]   # e.g. claude-sonnet-5: cleaner explain rewards      # resume: Modal restarts a preempted function with the same input (seen 2026-09-19 20:06)
 
 
@@ -67,6 +75,7 @@ def _start_watchdog(run: str, minutes: int) -> None:
     per-step checkpoint, a relaunch (or Modal's retry) continues from the last step instead of leaving a zombie."""
     import threading, time
     from codeqa.shared import paths
+    from codeqa.shared.control import stop_requested
     from codeqa.clients.tinker import close_all_sessions
     m = paths.LOGS / run / "metrics.jsonl"
 
@@ -81,7 +90,7 @@ def _start_watchdog(run: str, minutes: int) -> None:
                 (paths.DATA / "STOP").touch()                              # the queue starts no further arm
                 close_all_sessions("success", "budget cap reached")
                 os._exit(0)
-            if (paths.DATA / "STOP").exists() and rows != last_rows:      # a new row = optimizer step just ran; nothing is in flight yet
+            if rows != last_rows and stop_requested():                    # a new row = optimizer step just ran; nothing is in flight yet
                 print(f"[arm] STOP file present at step boundary (rows={rows}); closing Tinker sessions and exiting 0", flush=True)
                 close_all_sessions("success", "stopped by STOP file at a step boundary")
                 os._exit(0)
@@ -99,11 +108,11 @@ def main() -> int:
     ap = argparse.ArgumentParser(); ap.add_argument("arm", choices=ARMS); ap.add_argument("--steps", type=int); ap.add_argument("--skip-eval", action="store_true")
     a = ap.parse_args()
     variant, env, default_steps = ARMS[a.arm]
-    default_steps = int(os.environ.get("CODEQA_ARM_STEPS_NOGATES", default_steps)) if a.arm == "nogates" else int(os.environ.get("CODEQA_ARM_STEPS", default_steps))
-    steps = a.steps or default_steps
     os.environ["CODEQA_RUNTIME"] = "local"          # we are the job; never redirect
     os.environ["CODEQA_AGENT_VARIANT"] = variant
-    os.environ.update(env)
+    os.environ.update(env)                          # an arm's own CODEQA_ARM_STEPS / CODEQA_ARM_EVAL_EVERY beat the queue-wide ones
+    default_steps = int(os.environ.get("CODEQA_ARM_STEPS_NOGATES", default_steps)) if a.arm == "nogates" else int(os.environ.get("CODEQA_ARM_STEPS", default_steps))
+    steps = a.steps or default_steps
     run = f"{os.environ.get('CODEQA_ARM_PREFIX', 'p1_')}{a.arm}"
     from codeqa.shared import paths as _paths
     os.environ["CODEQA_GROUPS_DIR"] = str(_paths.LOGS / run)          # groups.json sidecars for the Workshop

@@ -24,6 +24,10 @@ const OPTIM: { key: string; label: string; caption?: string; ref?: (rows: Metric
   { key: 'optim/importance_ratio_mean', label: 'Importance ratio, mean', caption: 'exp(train logp − sample logp); ~1 in sync training', ref: () => [{ y: 1, label: 'on-policy' }] },
   { key: 'optim/importance_ratio_max', label: 'Importance ratio, max', caption: 'the worst token; spikes mean off-policy updates', ref: () => [{ y: 1, label: 'on-policy' }] },
   { key: 'optim/clip_fraction', label: 'Clip fraction', caption: 'share of tokens with |ratio − 1| > 0.2; rising = the classic PPO warning', ref: () => [{ y: 0.2, label: 'watch' }], domain: [0, 1] },
+  // Not logged today: Tinker's optim_step returns no gradient statistics for LoRA runs (OptimStepResponse.metrics is empty
+  // across every run on disk) and forward_backward returns log-probs, not gradients. Registered so it is charted with a
+  // label and a threshold the moment lane C or Tinker provides it.
+  { key: 'optim/grad_norm', label: 'Gradient norm', caption: 'size of the raw gradient before clipping; spikes precede collapse', ref: () => [{ y: 1, label: 'clip' }] },
   { key: 'optim/action_tokens', label: 'Action tokens per step', caption: 'how much generated text the update was computed on' },
   { key: 'optim/lr', label: 'Learning rate' },
 ]

@@ -33,6 +33,7 @@ export interface Profile {
   label?: string
   note?: string
   source?: 'profiles.yaml' | 'checkpoints'
+  default?: boolean
 }
 
 // C9 · product stream events

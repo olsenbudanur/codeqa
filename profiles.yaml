@@ -42,3 +42,13 @@ qwen4b-run1-step10:
   max_generation_tokens: 2048
   thinking: true
   variant: full
+qwen4b-p6_full-step12:                       # phase 6, full harness, reward v2, all_noscout; held-out balanced 0.473 / 83 % correct (T=1)
+  kind: tinker
+  model: tinker://b50a7d09-bd13-5250-831f-9b3db43dc649:train:0/sampler_weights/final
+  base_model: Qwen/Qwen3.5-4B
+  api_key_env: TINKER_API_KEY_NEW            # second org
+  renderer: qwen3_5
+  max_context: 65536
+  max_generation_tokens: 2048
+  thinking: true
+  variant: full

@@ -51,6 +51,12 @@ async def _get_sandbox():
 
 async def run(command: str, repo_id: str, timeout: float, cap: int) -> tuple[str, str | None]:
     """Same contract as shell.run: (output, error). Retries once on a dead sandbox."""
+    text, _rc, err = await run_rc(command, repo_id, timeout, cap)
+    return text, err
+
+
+async def run_rc(command: str, repo_id: str, timeout: float, cap: int) -> tuple[str, int | None, str | None]:
+    """(output, returncode, error): like run() but keeps the exit code so shell.run can heal grep failures."""
     workdir = f"{DATA_MOUNT}/repos/{repo_id}"
     last_err = None
     for attempt in range(2):
@@ -64,18 +70,16 @@ async def run(command: str, repo_id: str, timeout: float, cap: int) -> tuple[str
             text = out + (("\n" + err) if err.strip() else "")
             if len(text) > cap:
                 text = text[:cap] + f"\n(output truncated to {cap} chars; narrow the command, e.g. add | head -50 or a line range)"
-            if rc not in (0, 1) and not text.strip():
-                text = f"(exit {rc}, no output)"
-            return text.rstrip("\n"), None
+            return text.rstrip("\n"), rc, None
         except asyncio.TimeoutError:
-            return "", f"timeout after {timeout:.0f}s; narrow the command"
+            return "", None, f"timeout after {timeout:.0f}s; narrow the command"
         except Exception as e:  # noqa: BLE001  (sandbox died / terminated): drop it and retry once
             last_err = f"{type(e).__name__}: {e}"
             try:
                 _pool.remove(sb)
             except ValueError:
                 pass
-    return "", f"sandbox error: {last_err}"
+    return "", None, f"sandbox error: {last_err}"
 
 
 async def close() -> None:

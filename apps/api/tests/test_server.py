@@ -79,7 +79,7 @@ def test_repos_lists_indexed_repos_and_hides_nodoc(client: TestClient) -> None:
 
 
 def test_profiles(client: TestClient) -> None:
-    assert client.get("/profiles").json() == [{"name": "scripted", "kind": "anthropic", "model": "scripted", "label": "scripted", "note": "judge", "source": "profiles.yaml"}]
+    assert client.get("/profiles").json() == [{"name": "scripted", "kind": "anthropic", "model": "scripted", "label": "scripted", "note": "judge", "source": "profiles.yaml", "default": False}]
 
 
 def test_file_reads_ranges_and_refuses_escapes(client: TestClient) -> None:

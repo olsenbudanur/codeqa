@@ -11,7 +11,7 @@ import math
 
 from codeqa.grader import gates
 from codeqa.grader.citations import check_citations, grounded_fraction, grounded_only_by_tolerance
-from codeqa.grader.efficiency import context_tokens, efficiency, redundant_reads
+from codeqa.grader.efficiency import context_tokens, efficiency, redundant_reads, token_sum, token_sum_efficiency
 from codeqa.grader.judge import JudgeClient, judge
 from codeqa.grader.repo import RepoFiles, load_repo
 from codeqa.grader.verifiers import uses_judge, verify
@@ -26,9 +26,21 @@ def honesty_gates() -> bool:   # read per call so a job can train ungated and st
 
 
 def reward_version() -> str:
-    """CODEQA_REWARD=v1 restores the 2026-09-19 reward (all-or-nothing citation-existence gate, no length floor) for controls."""
-    import os
+    """CODEQA_REWARD=v1 restores the 2026-09-19 reward (all-or-nothing citation-existence gate, no length floor) for controls.
+    v3 (2026-09-20, bash_v3): correctness first, grounded fraction and token efficiency as secondary weights (see grade())."""
     return os.environ.get("CODEQA_REWARD", "v2")
+
+
+V3_GROUNDED_WEIGHT = 0.25
+
+
+def v3_efficiency_weight() -> float:
+    """CODEQA_EFF_WEIGHT (default 0.15) applies from training step CODEQA_EFF_WEIGHT_FROM_STEP (default 0); the trainer
+    publishes the current step as CODEQA_TRAIN_STEP. Before that step the weight is 0 and the term is only measured."""
+    w = float(os.environ.get("CODEQA_EFF_WEIGHT", "0.15"))
+    start = int(os.environ.get("CODEQA_EFF_WEIGHT_FROM_STEP", "0"))
+    step = int(os.environ.get("CODEQA_TRAIN_STEP", "0"))
+    return w if step >= start else 0.0
 
 
 def _fail(gate: str, note: str, comps: GradeComponents) -> GradeResult:
@@ -36,7 +48,10 @@ def _fail(gate: str, note: str, comps: GradeComponents) -> GradeResult:
 
 
 async def grade(task: Task, trace: Trace, variant: str = "none", judge_client: JudgeClient | None = None,
-                repo: RepoFiles | None = None) -> GradeResult:
+                repo: RepoFiles | None = None, reward: str | None = None) -> GradeResult:
+    """`reward` pins the reward version (v1|v2|v3); None reads CODEQA_REWARD. The held-out evaluator pins v2 so its
+    numbers stay comparable across phases whatever the training reward is."""
+    rv = reward or reward_version()
     budget = task.effective_budget()
     repo = repo or load_repo(task.repo_id)
     comps = GradeComponents(efficiency=1.0)
@@ -55,7 +70,7 @@ async def grade(task: Task, trace: Trace, variant: str = "none", judge_client: J
     report = check_citations(answer, trace.stats.files_read, task.repo_id, task.grading.expected_symbols, repo=repo)
     n = max(len(report.citations), 1)
     if honesty_gates():
-        if reward_version() == "v1" and not report.all_exist:            # v1: one bad path zeroes the answer
+        if rv == "v1" and not report.all_exist:                          # v1: one bad path zeroes the answer
             bad = [f"{c.path}:L{c.start}-L{c.end}" for c in report.citations if not c.exists]
             return _fail("citations", f"citations: not in snapshot: {', '.join(bad[:3])}", comps)
         comps.citations_exist = sum(c.exists for c in report.citations) / n      # v2 (2026-09-20): per-claim credit; a bad path
@@ -88,6 +103,14 @@ async def grade(task: Task, trace: Trace, variant: str = "none", judge_client: J
         comps.correctness, note = verify(task, answer, report, repo)
 
     ground = comps.citations_grounded if honesty_gates() else 1.0     # partial grounding scales the reward; the ablation arm ignores it
+    if rv == "v3":
+        # correctness first; grounded fraction and token efficiency are secondary weights that only a correct answer earns.
+        # R = c x ((1 - wg - we) + wg x grounded + we x efficiency); length and the forced-answer factor are trainer shaping.
+        w_e = v3_efficiency_weight()
+        comps.efficiency = token_sum_efficiency(trace, answer_tokens=gates.approx_tokens(answer))
+        reward = comps.correctness * ((1.0 - V3_GROUNDED_WEIGHT - w_e) + V3_GROUNDED_WEIGHT * ground + w_e * comps.efficiency)
+        note += f"; v3 grounded {ground:.2f} eff {comps.efficiency:.2f} (w_e {w_e:.2f})"
+        return GradeResult(reward=reward, components=comps, gate_failed=None, notes=note)
     reward = comps.correctness * comps.efficiency * ground             # length is NOT here: the trainer applies gates.length_factor as shaping
     if honesty_gates() and ground < 0.999:
         note += f"; grounded {ground:.0%} of cited lines (x{ground:.2f})"
@@ -95,8 +118,8 @@ async def grade(task: Task, trace: Trace, variant: str = "none", judge_client: J
 
 
 def grade_sync(task: Task, trace: Trace, variant: str = "none", judge_client: JudgeClient | None = None,
-               repo: RepoFiles | None = None) -> GradeResult:
-    return asyncio.run(grade(task, trace, variant, judge_client, repo))
+               repo: RepoFiles | None = None, reward: str | None = None) -> GradeResult:
+    return asyncio.run(grade(task, trace, variant, judge_client, repo, reward))
 
 
 def metrics(result: GradeResult, trace: Trace, task: Task) -> dict[str, float]:
@@ -128,6 +151,9 @@ def metrics(result: GradeResult, trace: Trace, task: Task) -> dict[str, float]:
         "prefix_tokens": float(context_tokens(trace)[0]),
         "context_tokens": float(context_tokens(trace)[1]),                  # binary; tool_calls / correct = calls per correct answer
         "stalled": 1.0 if trace.stats.stop_reason in ("budget", "max_turns") else 0.0,   # ended without answering
+        "forced_answer": 1.0 if trace.stats.forced_answer else 0.0,                     # v3: answered on the injected final turn
+        "token_sum": float(token_sum(trace)),                                            # true cost: prompt+completion over every turn
+        "calls_per_turn": float(trace.stats.tool_calls) / max(trace.stats.turns, 1),
     }
     for g in ("format", "citations", "grounding", "budget", "judge_error"):
         m[f"gate_{g}"] = 1.0 if result.gate_failed == g else 0.0

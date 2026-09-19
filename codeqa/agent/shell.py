@@ -134,14 +134,94 @@ def sandbox_exec_works() -> bool:
 EXECUTOR = os.environ.get("CODEQA_BASH_EXECUTOR", "local")   # local | modal
 
 
-async def run(command: str, cwd: Path, timeout: float = TIMEOUT, cap: int = OUTPUT_CAP, repo_id: str | None = None) -> tuple[str, str | None]:
-    """Returns (output, error). Output is stdout+stderr, capped. Error is a short reason when the command was refused."""
-    why = precheck(command)
-    if why:
-        return "", f"blocked: {why}"
+# ---------------------------------------------------------------------------
+# Grep self-healing (CODEQA_BASH_HEAL=1, v3 harness): a bad regex is retried once as a literal search with the escapes
+# removed; zero hits are retried once case-insensitively. Both retries are labelled and stay inside the same tool call.
+# Multi-variation searching (synonyms, splitting words) is deliberately NOT done: that is the model's job to learn.
+# ---------------------------------------------------------------------------
+
+_GREP_WORDS = ("grep", "egrep", "fgrep")
+_REGEX_ERR = re.compile(r"Unmatched|Invalid (regular expression|preceding|range|content|character class|back reference|collation)"
+                        r"|Trailing backslash|repetition-operator|brackets|parenthes|Regular expression too big|Premature end|Unterminated",
+                        re.IGNORECASE)
+_TAKES_VALUE = {"-e", "--regexp", "-f", "--file", "-A", "-B", "-C", "-m", "--include", "--exclude", "--exclude-dir", "--max-count"}
+HEAL_LITERAL_NOTE = "(the pattern was not a valid regex; showing literal matches for {pat!r})\n"
+HEAL_ICASE_NOTE = "(no exact matches; showing case-insensitive matches)\n"
+
+
+def heal_enabled() -> bool:
+    return os.environ.get("CODEQA_BASH_HEAL", "0") == "1"
+
+
+def _split_first_segment(command: str) -> tuple[str, str]:
+    """('grep -rn foo .', ' | head -5') split at the first unquoted pipe; ('cmd', '') when there is none."""
+    depth_q: str | None = None
+    for i, ch in enumerate(command):
+        if depth_q:
+            if ch == depth_q:
+                depth_q = None
+        elif ch in ("'", '"'):
+            depth_q = ch
+        elif ch == "|":
+            if command[i + 1:i + 2] == "|":
+                return command, ""
+            return command[:i], command[i:]
+    return command, ""
+
+
+def grep_variant(command: str, *, literal: bool = False, ignore_case: bool = False) -> str | None:
+    """The same command with the grep pattern unescaped and -F / -i added; None when it is not a plain grep call."""
+    first, rest = _split_first_segment(command)
+    try:
+        args = shlex.split(first, posix=True)
+    except ValueError:
+        return None
+    if not args or args[0] not in _GREP_WORDS:
+        return None
+    pat_idx: int | None = None
+    i = 1
+    while i < len(args):
+        a = args[i]
+        if a == "--":
+            pat_idx = i + 1 if i + 1 < len(args) else None
+            break
+        if a.startswith("-") and len(a) > 1:
+            if a in ("-e", "--regexp"):
+                pat_idx = i + 1 if i + 1 < len(args) else None
+                break
+            if a in ("-f", "--file"):
+                return None
+            if a in _TAKES_VALUE and "=" not in a:
+                i += 2
+                continue
+            i += 1
+            continue
+        pat_idx = i
+        break
+    if pat_idx is None or pat_idx >= len(args):
+        return None
+    flags = [a for a in args[1:pat_idx] if a.startswith("-")]
+    if literal and any(f in ("-F", "--fixed-strings") or (f.startswith("-") and not f.startswith("--") and "F" in f[1:]) for f in flags):
+        return None
+    if ignore_case and any(f in ("-i", "--ignore-case") or (f.startswith("-") and not f.startswith("--") and "i" in f[1:]) for f in flags):
+        return None
+    new = list(args)
+    if literal:
+        new[pat_idx] = re.sub(r"\\([^A-Za-z0-9])", r"\1", new[pat_idx])
+        if new[0] == "egrep":
+            new[0] = "grep"
+        new = [a for a in new if a not in ("-E", "--extended-regexp", "-P", "--perl-regexp")]
+        new.insert(1, "-F")
+    if ignore_case:
+        new.insert(1, "-i")
+    return shlex.join(new) + rest
+
+
+async def _exec(command: str, cwd: Path, timeout: float, cap: int, repo_id: str | None) -> tuple[str, int | None, str | None]:
+    """(output, returncode, error): the raw execution on either executor."""
     if EXECUTOR == "modal":
         from codeqa.agent import modal_shell
-        return await modal_shell.run(command, repo_id or cwd.name, timeout, cap)
+        return await modal_shell.run_rc(command, repo_id or cwd.name, timeout, cap)
     argv = [BASH, "-r", "-c", command]
     if sandbox_exec_works():
         argv = [SANDBOX_EXEC, "-p", _sandbox_profile(cwd)] + argv
@@ -155,12 +235,38 @@ async def run(command: str, cwd: Path, timeout: float = TIMEOUT, cap: int = OUTP
             proc.kill()
         except Exception:  # noqa: BLE001
             pass
-        return "", f"timeout after {timeout:.0f}s; narrow the command"
+        return "", None, f"timeout after {timeout:.0f}s; narrow the command"
     text = out.decode(errors="replace")
     if len(text) > cap:
         text = text[:cap] + f"\n(output truncated to {cap} chars; narrow the command, e.g. add | head -50 or a line range)"
-    if proc.returncode not in (0, 1) and not text.strip():  # grep returns 1 on no match; that is not an error
-        text = f"(exit {proc.returncode}, no output)"
+    return text, proc.returncode, None
+
+
+async def run(command: str, cwd: Path, timeout: float = TIMEOUT, cap: int = OUTPUT_CAP, repo_id: str | None = None) -> tuple[str, str | None]:
+    """Returns (output, error). Output is stdout+stderr, capped. Error is a short reason when the command was refused."""
+    why = precheck(command)
+    if why:
+        return "", f"blocked: {why}"
+    text, rc, err = await _exec(command, cwd, timeout, cap, repo_id)
+    if err:
+        return "", err
+    if heal_enabled():
+        if rc == 2 and _REGEX_ERR.search(text):
+            alt = grep_variant(command, literal=True)
+            if alt and alt != command:
+                t2, rc2, err2 = await _exec(alt, cwd, timeout, cap, repo_id)
+                if not err2 and rc2 == 0 and t2.strip():
+                    pat = shlex.split(_split_first_segment(alt)[0])
+                    lit = next((a for a in pat[2:] if not a.startswith("-")), "")
+                    return (HEAL_LITERAL_NOTE.format(pat=lit) + t2).rstrip("\n"), None
+        elif rc == 1 and not text.strip():
+            alt = grep_variant(command, ignore_case=True)
+            if alt and alt != command:
+                t2, rc2, err2 = await _exec(alt, cwd, timeout, cap, repo_id)
+                if not err2 and rc2 == 0 and t2.strip():
+                    return (HEAL_ICASE_NOTE + t2).rstrip("\n"), None
+    if rc not in (0, 1, None) and not text.strip():  # grep returns 1 on no match; that is not an error
+        text = f"(exit {rc}, no output)"
     return text.rstrip("\n"), None
 
 
@@ -191,6 +297,61 @@ _HEAD_N = re.compile(r"\bhead\s+(?:-n\s*|-)(\d+)")
 _TAIL_N = re.compile(r"\btail\s+(?:-n\s*|-)(\d+)")
 
 
+_STAGE_HEAD = re.compile(r"^\s*head\s+(?:-n\s*|-)(\d+)\s*$")
+_STAGE_TAIL = re.compile(r"^\s*tail\s+(?:-n\s*|-)(\d+)\s*$")
+_STAGE_SED = re.compile(r"^\s*sed\s+-n\s+['\"]?(\d+),(\d+)p['\"]?\s*$")
+
+
+def pipelines_enabled() -> bool:
+    """CODEQA_SEEN_PIPELINES=1 (v3 harness): `cat FILE | head -150 | tail -30` style reads of ONE file register the lines
+    they print, like the plain forms below. Off by default so the phase-6 arms keep one grounding rule."""
+    return os.environ.get("CODEQA_SEEN_PIPELINES", "0") == "1"
+
+
+def _pipeline_span(command: str, output: str, single: str, n_lines: int) -> Span | None:
+    """Evaluate a chain of head/tail/sed -n stages over one file's lines 1..n_lines: (start, end) after every stage."""
+    stages = [seg.strip() for seg in command.split("|")]
+    first, rest = stages[0], stages[1:]
+    if not rest:
+        return None
+    words = first.split()
+    if not words:
+        return None
+    if words[0] == "cat":
+        s, e = 1, n_lines
+    elif words[0] == "head":
+        m = _HEAD_N.search(first)
+        if not m:
+            return None
+        s, e = 1, min(int(m.group(1)), n_lines)
+    elif words[0] == "tail":
+        m = _TAIL_N.search(first)
+        if not m:
+            return None
+        s, e = max(n_lines - int(m.group(1)) + 1, 1), n_lines
+    elif words[0] == "sed":
+        m = _SED_RANGE.search(first)
+        if not m:
+            return None
+        s, e = int(m.group(1)), min(int(m.group(2)), n_lines)
+    else:
+        return None
+    for stage in rest:
+        if m := _STAGE_HEAD.match(stage):
+            e = min(e, s + int(m.group(1)) - 1)
+        elif m := _STAGE_TAIL.match(stage):
+            s = max(s, e - int(m.group(1)) + 1)
+        elif m := _STAGE_SED.match(stage):
+            a, b = int(m.group(1)), int(m.group(2))
+            s, e = s + a - 1, min(e, s + b - 1)
+        else:
+            return None                                   # grep, sort, wc ...: the printed lines are not a contiguous range
+    printed = len([ln for ln in output.splitlines() if not ln.startswith("(output cut") and not ln.startswith("[")])
+    if printed == 0 or s > e or s > n_lines:
+        return None
+    return Span(path=single, start=s, end=min(e, s + printed - 1))
+
+
 def _unnumbered_span(command: str, output: str, single: str, n_lines: int) -> Span | None:
     """`sed -n 'A,Bp' FILE`, `head -N FILE`, `tail -N FILE`, `cat FILE` show real lines without numbers; the model can
     count from the range it asked for, so they count as seen (2026-09-20: a correct Pillow answer scored 0 for this).
@@ -201,6 +362,8 @@ def _unnumbered_span(command: str, output: str, single: str, n_lines: int) -> Sp
     first = command.split("|")[0] if "|" in command else command
     if "nl " in command or " -n" in first.split("sed")[0]:
         return None                                       # numbered forms are handled by the per-line parser
+    if "|" in command and pipelines_enabled():
+        return _pipeline_span(command, output, single, n_lines)
     m = _SED_RANGE.search(command)
     if m and "sed" in first:
         a, b = int(m.group(1)), int(m.group(2))

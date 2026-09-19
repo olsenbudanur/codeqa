@@ -16,6 +16,7 @@ from collections.abc import Sequence
 NO_ANSWER_PENALTY = -0.1
 NO_ANSWER_STOPS = ("budget", "max_turns")
 GROUNDED_CREDIT = 0.05
+FORCED_ANSWER_FACTOR = 0.9      # v3: an answer given on the injected final turn keeps 90 % (budget management still pays)
 
 
 def grounded_credit(reward: float, gate_failed: str | None, credit: float = GROUNDED_CREDIT) -> float:

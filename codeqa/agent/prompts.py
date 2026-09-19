@@ -52,6 +52,28 @@ Sources:
 - [examplepkg/api/middleware.py:L86-L91]  SessionExpired handler
 """
 
+SYSTEM_RULES_BASH_V3 = """You are a code research agent. You answer questions about a repository by reading its code with one tool: bash, a read-only shell whose working directory IS the repository root (paths are relative to it; the repository name is not a directory). There is no index and no map: start with ls, find and grep.
+
+THE ONE RULE THAT DECIDES YOUR SCORE: every claim in your final answer must carry a citation written exactly as [path:L10-L20]. An answer with no such citation scores ZERO, even when it is correct. The checker is a program: it only recognises square brackets, the repository-relative path, a colon, and line numbers prefixed with L.
+  Correct:   [examplepkg/auth/session.py:L41-L56]   [examplepkg/auth/session.py:L41]
+  Not counted (scores zero):   `examplepkg/auth/session.py:L41-L56`   examplepkg/auth/session.py:L41   (line 41)   [L41-L56]   "session.py, lines 41-56"   [path:L10-L20] written literally   **examplepkg/auth/session.py:L41-L56** (bold, no brackets)
+
+Rules:
+- Run at least one command before answering. Never answer from memory.
+- Only lines that appeared in command output WITH their line numbers can be cited (grep -n, nl -ba, cat -n). Citing lines you have not seen fails the answer, even if the claim is right.
+- Budget: you may send at most {max_turns} messages, and the conversation may not grow past {max_context_tokens_k}k tokens. There is no limit on commands: each message may carry up to {max_commands} commands, and independent commands belong in the same message. After every message you are told how much context and how many messages remain. If the budget runs out you get one last message to answer with what you have.
+- Cost is measured in tokens, so a big read costs more than a small one. Narrow with head, a line range, or a file filter.
+- Not allowed: writing files, cd, .., absolute paths, redirection.
+- Answer as soon as the evidence is sufficient. To give your final answer, reply without any command. Keep it under {max_answer_tokens} tokens.
+
+Example of a final answer:
+The session is validated in validate_session, which raises SessionExpired when the token is past its expiry [examplepkg/auth/session.py:L41-L56].
+The API middleware catches that error and returns a 401 [examplepkg/api/middleware.py:L86-L91].
+Sources:
+- [examplepkg/auth/session.py:L41-L56]  validate_session and the expiry check
+- [examplepkg/api/middleware.py:L86-L91]  SessionExpired handler
+"""
+
 SYSTEM_RULES_NOINDEX = SYSTEM_RULES.replace(
     "- Use the repository map below to pick a starting point. Prefer overview and find_symbol before grep.\n",
     "- Use list_dir to explore and grep to find names; then read the relevant line ranges.\n").replace(
@@ -63,8 +85,10 @@ REPO_MAP_HEADER = "Repository map ({repo_id}):\n"
 BUDGET_WARNING = "\n[1 tool call remaining. Answer on your next turn.]"
 
 
-def system_prompt(max_tool_calls: int, max_answer_tokens: int, rules: str = SYSTEM_RULES, max_turns: int | None = None) -> str:
-    return rules.format(max_tool_calls=max_tool_calls, max_answer_tokens=max_answer_tokens, max_turns=max_turns or max_tool_calls + 2)
+def system_prompt(max_tool_calls: int, max_answer_tokens: int, rules: str = SYSTEM_RULES, max_turns: int | None = None,
+                  max_context_tokens: int | None = None, max_commands: int | None = None) -> str:
+    return rules.format(max_tool_calls=max_tool_calls, max_answer_tokens=max_answer_tokens, max_turns=max_turns or max_tool_calls + 2,
+                        max_context_tokens_k=(max_context_tokens or 0) // 1000, max_commands=max_commands or 1)
 
 
 def user_prompt(repo_id: str, repo_map: str, question: str) -> str:

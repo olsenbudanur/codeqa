@@ -60,6 +60,10 @@ _client_locks: dict[str, asyncio.Lock] = {}
 _CKPT_RE = re.compile(r"^qwen4b-(?P<run>[A-Za-z0-9_.\-]+)-step(?P<step>\d+|final)$")
 
 
+SECOND_ORG_RUN_PREFIXES = ("p4_", "p5_", "p6_")      # runs trained in the second Tinker org (their samplers need TINKER_API_KEY_NEW)
+DEFAULT_PROFILE = os.environ.get("CODEQA_DEFAULT_PROFILE", "qwen4b-p6_full-step12")   # what the product's model picker opens on
+
+
 def checkpoint_profiles() -> dict[str, EndpointProfile]:
     """One profile per sampler checkpoint under data/logs/<run>/checkpoints.jsonl, named qwen4b-<run>-step<N> (lane A's
     convention), unless profiles.yaml already names that sampler path. Read-only: nothing is written to profiles.yaml."""
@@ -82,8 +86,9 @@ def checkpoint_profiles() -> dict[str, EndpointProfile]:
             name = f"qwen4b-{run.name}-step{step}"
             if name in out or name in yaml_profiles:  # `000003` and `final` rows share a batch; profiles.yaml wins
                 continue
+            key_env = "TINKER_API_KEY_NEW" if run.name.startswith(SECOND_ORG_RUN_PREFIXES) and os.environ.get("TINKER_API_KEY_NEW") else None
             out[name] = EndpointProfile(name=name, kind="tinker", model=sp, base_model=base, renderer=cfg.get("renderer_name") or "qwen3_5",
-                                        max_context=32768, max_generation_tokens=int(cfg.get("max_tokens") or 2048))
+                                        max_context=32768, max_generation_tokens=int(cfg.get("max_tokens") or 2048), api_key_env=key_env)
     return out
 
 
@@ -308,7 +313,8 @@ def profile_row(p: EndpointProfile, from_checkpoints: bool = False) -> dict[str,
         label, note = "Qwen3.5-4B, served", "vLLM on Modal"
     if from_checkpoints:
         note = f"{note} (checkpoint)" if note else "checkpoint"
-    return {"name": p.name, "kind": p.kind, "model": p.model, "label": label, "note": note, "source": "checkpoints" if from_checkpoints else "profiles.yaml"}
+    return {"name": p.name, "kind": p.kind, "model": p.model, "label": label, "note": note, "source": "checkpoints" if from_checkpoints else "profiles.yaml",
+            "default": p.name == DEFAULT_PROFILE}
 
 
 @app.get("/profiles")
