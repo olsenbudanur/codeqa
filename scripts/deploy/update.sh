@@ -6,7 +6,10 @@ export PATH="$HOME/.local/bin:$PATH"
 APP=/opt/codeqa
 HOST=$(grep -m1 -oE '^[a-z0-9.-]+\.[a-z]+' /etc/caddy/Caddyfile | head -1)
 cd $APP
+BEFORE=$(git rev-parse HEAD)
 git pull --ff-only
+# bash keeps running the pre-pull copy of this file; re-exec once so a changed update.sh applies to this run.
+if [ "$(git rev-parse HEAD)" != "$BEFORE" ] && [ -z "${CODEQA_UPDATE_REEXEC:-}" ]; then CODEQA_UPDATE_REEXEC=1 exec bash "$0"; fi
 uv sync -q
 (cd apps/web && pnpm install --frozen-lockfile --silent && VITE_API_URL="https://$HOST/api" VITE_SITE_URL="https://$HOST" pnpm build)
 sudo install -m 644 scripts/deploy/codeqa-api.service /etc/systemd/system/codeqa-api.service
