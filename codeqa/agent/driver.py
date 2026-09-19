@@ -48,8 +48,32 @@ async def _emit(on_event: OnEvent, type_: str, **payload: Any) -> None:
         await r
 
 
+def trim_old_tool_outputs(messages: list[Message], keep_turns: int) -> list[Message]:
+    """Product-side context control: tool outputs older than the last `keep_turns` assistant turns are replaced
+    by a one-line stub in what the model sees. The trace keeps the full messages; grounding still holds because
+    `files_read` records what was shown. Not used in training (the cookbook env owns the history there)."""
+    turn_of: list[int] = []
+    t = 0
+    for m in messages:
+        if m.role == "assistant":
+            t += 1
+        turn_of.append(t)
+    cutoff = max(t - keep_turns, 0)
+    out: list[Message] = []
+    for m, tm in zip(messages, turn_of):
+        if m.role == "tool" and tm <= cutoff and len(m.content) > 200:
+            head = m.content.splitlines()[0][:120] if m.content else ""
+            out.append(m.model_copy(update={"content": f"{head}\n[earlier {m.name or 'tool'} output trimmed: {len(m.content)} chars; re-run the call if you need it]"}))
+        else:
+            out.append(m)
+    return out
+
+
 async def run_episode(env: RepoEnv, client: ModelClient, on_event: OnEvent = None, *,
-                      temperature: float = 1.0, max_tokens: int | None = None) -> Trace:
+                      temperature: float = 1.0, max_tokens: int | None = None,
+                      trim_tool_outputs_after: int | None = None) -> Trace:
+    """`trim_tool_outputs_after=N` keeps only the last N turns' tool outputs in the prompt (product latency/cost knob;
+    default None = full context, identical to training)."""
     t0 = time.time()
     messages: list[Message] = env.initial_messages()
     specs = env.specs()
@@ -63,7 +87,8 @@ async def run_episode(env: RepoEnv, client: ModelClient, on_event: OnEvent = Non
         for turn in range(1, budget.max_turns + 1):
             stats.turns = turn
             import asyncio
-            msg = await asyncio.wait_for(client.chat(messages, tools=specs, max_tokens=max_tokens or client.profile.max_generation_tokens,
+            visible = trim_old_tool_outputs(messages, trim_tool_outputs_after) if trim_tool_outputs_after else messages
+            msg = await asyncio.wait_for(client.chat(visible, tools=specs, max_tokens=max_tokens or client.profile.max_generation_tokens,
                                                      temperature=temperature), timeout=CHAT_TIMEOUT)
             stats.prompt_tokens += int(msg.usage.get("prompt_tokens", 0))
             stats.completion_tokens += int(msg.usage.get("completion_tokens", 0))

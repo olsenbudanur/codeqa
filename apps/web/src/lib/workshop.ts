@@ -170,6 +170,8 @@ export interface TraceDetail {
   answer: string
   grade: Grade
   citations: CitationRow[]
+  messages?: import('@/components/workshop/raw-conversation').RawMessage[]
+  messages_note?: string
 }
 
 export interface RepoOverview {

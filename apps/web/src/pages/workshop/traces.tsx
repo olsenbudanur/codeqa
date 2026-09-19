@@ -14,6 +14,8 @@ import { Ledger } from '@/components/research/ledger'
 import { AnswerPanel } from '@/components/answer/answer-panel'
 import { FileViewer } from '@/components/file/file-viewer'
 import { Chip, ErrorNote, Loading, Page, Panel } from '@/components/workshop/ui'
+import { RawConversation } from '@/components/workshop/raw-conversation'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 export function TracesPage({ parts, params }: { parts: string[]; params: URLSearchParams }) {
   if (parts[0] === 'compare') return <TraceCompare a={params.get('a') ?? ''} b={params.get('b') ?? ''} />
@@ -304,15 +306,26 @@ function TraceDetailPage({ id }: { id: string }) {
       {!trace && !error && <Loading what="trace" />}
       {trace && (
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
-          <div className="rounded-lg border bg-background p-5">
-            <TraceView trace={trace} onOpen={setSpan} />
-            {trace.task && trace.task.grading && (
-              <details className="mt-6 border-t pt-3 text-sm">
-                <summary className="cursor-pointer text-muted-foreground">Task gold</summary>
-                <pre className="mt-2 overflow-x-auto rounded bg-muted p-2 font-mono text-[11.5px]">{JSON.stringify(trace.task.grading, null, 1)}</pre>
-              </details>
-            )}
-          </div>
+          <Tabs defaultValue="log">
+            <TabsList>
+              <TabsTrigger value="log">Research log</TabsTrigger>
+              <TabsTrigger value="raw">Everything the model saw{trace.messages ? ` (${trace.messages.length})` : ''}</TabsTrigger>
+            </TabsList>
+            <TabsContent value="log" className="mt-3">
+              <div className="rounded-lg border bg-background p-5">
+                <TraceView trace={trace} onOpen={setSpan} />
+                {trace.task && trace.task.grading && (
+                  <details className="mt-6 border-t pt-3 text-sm">
+                    <summary className="cursor-pointer text-muted-foreground">Task gold</summary>
+                    <pre className="mt-2 overflow-x-auto rounded bg-muted p-2 font-mono text-[11.5px]">{JSON.stringify(trace.task.grading, null, 1)}</pre>
+                  </details>
+                )}
+              </div>
+            </TabsContent>
+            <TabsContent value="raw" className="mt-3">
+              {trace.messages ? <RawConversation messages={trace.messages} note={trace.messages_note} /> : <p className="text-sm text-muted-foreground">No message log for this trace.</p>}
+            </TabsContent>
+          </Tabs>
           <GradePanel trace={trace} />
         </div>
       )}

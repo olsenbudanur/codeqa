@@ -7,13 +7,13 @@ and update them.
 
 ```
 uv run uvicorn apps.api.server:app --port 8000          # terminal 1; warms Tinker clients in the background
-cd apps/web && VITE_API_URL=http://localhost:8000 pnpm dev   # terminal 2 → http://localhost:5173
+cd apps/web && pnpm dev                                      # terminal 2 → http://localhost:5173 (API is the .env default)
 ```
 
 - Open `http://localhost:5173/app`, pick pallets/flask, ask one throwaway question with the trained profile so the
   sampling client is warm (first call otherwise adds ~4 s).
 - Check `GET http://localhost:8000/profiles` lists `qwen4b-base`, the trained checkpoint you want to show, and `claude`.
-- Fallback with no network or keys: `pnpm dev` without `VITE_API_URL` replays the recorded episode from
+- Fallback with no network or keys: `VITE_API_URL= pnpm dev` (empty) replays the recorded episode from
   `apps/web/mock/events.json` on every page. The home page always uses the recording.
 - Second fallback: `data/traces/product/` holds every episode the API has run; `evals.report` can read them.
 

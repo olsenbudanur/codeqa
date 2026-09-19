@@ -71,7 +71,8 @@ scripts/modal_sync.sh                 # pull /logs /evals /traces /models down i
 
 ## Gotchas
 
-- **The volume is not a live shared filesystem.** A job's writes are visible to others only after its commit (every 30 s); the laptop sees them only after `scripts/modal_sync.sh`. `modal volume get VOL /dir DEST` nests `/dir` under `DEST`, which is why the sync script targets the data root.
+- **The volume is not a live shared filesystem.** A job's writes are visible to others only after its commit (every 30 s); the laptop sees them only after `scripts/modal_sync.sh`.
+- **`modal volume get … --force` replaces a local directory that also exists on the volume** (it deleted local eval sets on 2026-09-19). The sync script therefore stages under `data/.modal_pull/` and merges with rsync without deletes, and merges the models manifest by record name. Never call `modal volume get` directly into `data/`.
 - `modal volume put` of the whole `data/repos` (~1 GB, 65 dirs) failed with `stream timeout`; push one snapshot per call (`scripts/modal_push.sh repos` does). `/index` (150 MB) uploads fine in one call.
 - Two jobs writing the same run name clobber each other's files. Use distinct `--run-name` / `--set`.
 - A task file smaller than `steps × groups_per_batch` gives one batch per epoch; pass `--epochs` (lane C's trainer).

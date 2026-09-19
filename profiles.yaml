@@ -26,3 +26,11 @@ opus:
   max_context: 65536
   max_generation_tokens: 2048
   thinking: true
+qwen4b-run1-step10:
+  kind: tinker
+  model: tinker://4ca87931-b181-562d-b41d-6e995779c1b3:train:0/sampler_weights/000010
+  base_model: Qwen/Qwen3.5-4B
+  renderer: qwen3_5
+  max_context: 32768
+  max_generation_tokens: 2048
+  thinking: true

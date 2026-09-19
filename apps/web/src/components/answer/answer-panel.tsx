@@ -3,7 +3,7 @@ import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { CitationItem, Span } from '@/lib/contracts'
 import { formatRange, linkifyCitations, parseCitations, parseCiteHref, spanKey } from '@/lib/citations'
-import type { Episode } from '@/state/episode'
+import type { Episode, LogRow, ToolRow } from '@/state/episode'
 import { filesRead } from '@/state/episode'
 import { cn } from '@/lib/utils'
 import { CircleAlert } from 'lucide-react'
@@ -22,6 +22,20 @@ function splitSources(md: string): { body: string; notes: Map<string, string> } 
     if (m) notes.set(`${m[1]}:${m[2]}-${m[3] ?? m[2]}`, m[4].trim())
   }
   return { body, notes }
+}
+
+// Why a citation is (not) verified, from what the episode actually did.
+export function explainCitation(s: Span, rows: LogRow[], read: Span[]): string | undefined {
+  const sameFile = read.filter((r) => r.path === s.path)
+  if (sameFile.some((r) => contains(r, s))) return undefined
+  const seenIn = rows.filter((r): r is ToolRow => r.kind === 'call' && !!r.result && (r.name === 'find_symbol' || r.name === 'grep'))
+    .filter((r) => new RegExp(`${s.path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}:L${s.start}\b`).test((r.result!.text ?? '') + ' ' + r.result!.summary))
+  const readTxt = sameFile.length ? `Read in this file: ${sameFile.map((r) => formatRange(r)).join(', ')}.` : 'Nothing in this file was read.'
+  if (seenIn.length) {
+    const tool = seenIn[0].name
+    return `${readTxt} The location came from a ${tool} hit, which shows ${tool === 'find_symbol' ? 'the signature line' : 'the matching line'}, not the ${s.end > s.start ? 'range' : 'line'} itself.`
+  }
+  return readTxt
 }
 
 function contains(outer: Span, inner: Span) {
@@ -71,7 +85,7 @@ export function AnswerPanel({ episode, onOpen, compact, bare }: { episode: Episo
         </div>
       )}
       <div className={bare ? '' : 'border-t pt-4'}>
-        <CitedMarkdown markdown={body} verdictFor={verdictFor} onOpen={onOpen} />
+        <CitedMarkdown markdown={body} verdictFor={verdictFor} onOpen={onOpen} detailFor={(s) => explainCitation(s, rows, read)} />
       </div>
 
       {!compact && (uniqueCited.length > 0 || consulted.length > 0) && (
@@ -100,11 +114,13 @@ export function CitedMarkdown({
   verdictFor,
   onOpen,
   className,
+  detailFor,
 }: {
   markdown: string
   verdictFor: (s: Span) => Verdict
   onOpen: (s: Span) => void
   className?: string
+  detailFor?: (s: Span) => string | undefined
 }) {
   return (
     <div className={cn('answer-prose text-[15px] leading-7', className)}>
@@ -114,7 +130,7 @@ export function CitedMarkdown({
         components={{
           a: ({ href, children }) => {
             const span = href ? parseCiteHref(href) : null
-            if (span) return <CitationChip span={span} verdict={verdictFor(span)} onOpen={onOpen} />
+            if (span) return <CitationChip span={span} verdict={verdictFor(span)} onOpen={onOpen} detail={detailFor?.(span)} />
             return (
               <a href={href} target="_blank" rel="noreferrer" className="underline underline-offset-2">
                 {children}

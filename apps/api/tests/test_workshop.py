@@ -120,10 +120,12 @@ def test_traces_list_detail_compare(client: TestClient) -> None:
     dev = client.get("/traces/trace/dev/t-1__claude").json()
     assert [e["type"] for e in dev["events"]] == ["thinking", "tool_call", "tool_result", "answer", "stats", "done"]
     assert dev["grade"]["source"] == "check_citations" and [c["verified"] for c in dev["citations"]] == [True, False]
+    assert [m["role"] for m in dev["messages"]] == ["system", "user", "assistant", "tool", "assistant"] and dev["messages"][3]["content"].startswith("pkg/mod.py:L1-L5")
     ev = client.get("/traces/eval/claude/fast/t-1").json()
     assert ev["grade"]["reward"] == 0.5 and ev["grade"]["notes"] == "paths 1 gold: 1.00" and ev["question"] == "What is on line two?"
     ro = client.get(f"/traces/rollout/{RUN}/0/0/1").json()
     assert [e["type"] for e in ro["events"]] == ["tool_call", "tool_result", "answer", "stats", "done"] and ro["grade"]["reward"] == 1.0
+    assert [m["role"] for m in ro["messages"]] == ["assistant", "tool", "assistant"] and ro["messages"][1]["name"] == "read_file" and "messages_note" in ro
     cmp = client.get("/traces/compare", params={"a": "trace/dev/t-1__claude", "b": "eval/claude/fast/t-1"}).json()
     assert cmp["a"]["profile"] == "claude" and cmp["b"]["grade"]["reward"] == 0.5
     assert client.get("/traces/trace/dev/nope").status_code == 404

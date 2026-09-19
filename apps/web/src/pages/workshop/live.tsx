@@ -19,7 +19,7 @@ export function LivePage({ requested }: { requested: string | null }) {
   const [name, setName] = useState<string | null>(requested)
   const [run, setRun] = useState<RunDetail | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [tick, setTick] = useState(Date.now())
+  const [tick, setTick] = useState(() => Date.now())
   const seen = useRef<Set<string>>(new Set())
 
   // Which run: the requested one, else the live one, else the most recently updated.

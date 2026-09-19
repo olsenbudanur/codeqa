@@ -6,7 +6,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 
 export type Verdict = 'verified' | 'unverified' | 'pending'
 
-export function CitationChip({ span, verdict, onOpen }: { span: Span; verdict: Verdict; onOpen: (s: Span) => void }) {
+export function CitationChip({ span, verdict, onOpen, detail }: { span: Span; verdict: Verdict; onOpen: (s: Span) => void; detail?: string }) {
   const file = span.path.split('/').slice(-2).join('/')
   const tip =
     verdict === 'verified'
@@ -35,8 +35,9 @@ export function CitationChip({ span, verdict, onOpen }: { span: Span; verdict: V
           <span className="sr-only">, {tip}</span>
         </button>
       </TooltipTrigger>
-      <TooltipContent>
-        <span className="font-mono">{span.path}</span> · {tip}
+      <TooltipContent className="max-w-[360px]">
+        <span className="font-mono">{span.path}</span>, {tip}
+        {detail && <span className="mt-1 block text-[11.5px] opacity-80">{detail}</span>}
       </TooltipContent>
     </Tooltip>
   )

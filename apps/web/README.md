@@ -20,8 +20,8 @@ Produces nothing on disk. Holds no secrets; the API does. Every route except `/`
 
 ```
 pnpm install
-pnpm dev                         # http://localhost:5173, replays mock/events.json (no backend needed)
-VITE_API_URL=http://localhost:8000 pnpm dev   # against apps/api
+pnpm dev                         # http://localhost:5173, against apps/api on :8000 (.env default)
+VITE_API_URL= pnpm dev           # recorded mock, no backend: one sample repo, one replayed episode
 pnpm test                        # vitest: citation helpers, C9 reducer over the mock stream
 pnpm typecheck && pnpm lint && pnpm build
 ```

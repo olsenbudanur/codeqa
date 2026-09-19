@@ -94,6 +94,17 @@ class AnthropicClient:
                 {"name": t["name"], "description": t.get("description", ""), "input_schema": t.get("parameters", {"type": "object", "properties": {}})}
                 for t in tools
             ]
+        # Prompt caching: two breakpoints. The system block covers tools + system (~4k tokens: schemas, rules, repo map);
+        # the last message block covers the conversation so far. Each turn's prompt is the previous prompt plus a
+        # little, so every turn after the first reads the prefix from cache (billed at ~10 %).
+        if system:
+            kwargs["system"] = [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]
+        if msgs:
+            last = msgs[-1]
+            if isinstance(last["content"], str):
+                last["content"] = [{"type": "text", "text": last["content"]}]
+            if isinstance(last["content"], list) and last["content"]:
+                last["content"][-1] = {**last["content"][-1], "cache_control": {"type": "ephemeral"}}
         resp = await self._client.messages.create(**kwargs)
         text, thinking, calls = "", None, []
         for block in resp.content:
@@ -105,5 +116,10 @@ class AnthropicClient:
                 calls.append(ToolCall(name=block.name, args=dict(block.input), call_id=block.id))
         usage = {}
         if getattr(resp, "usage", None) is not None:
-            usage = {"prompt_tokens": int(resp.usage.input_tokens), "completion_tokens": int(resp.usage.output_tokens)}
+            u = resp.usage
+            cached = int(getattr(u, "cache_read_input_tokens", 0) or 0)
+            written = int(getattr(u, "cache_creation_input_tokens", 0) or 0)
+            # prompt_tokens = everything the model read (uncached + cache write + cache read), comparable to the Tinker client
+            usage = {"prompt_tokens": int(u.input_tokens) + cached + written, "completion_tokens": int(u.output_tokens),
+                     "cache_read_tokens": cached, "cache_write_tokens": written, "uncached_prompt_tokens": int(u.input_tokens)}
         return Message(role="assistant", content=text, thinking=thinking, tool_calls=calls, usage=usage)

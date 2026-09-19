@@ -509,6 +509,28 @@ def rollout_events(r: dict[str, Any]) -> list[dict[str, Any]]:
     return ev
 
 
+def rollout_messages(r: dict[str, Any]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for st in r.get("steps", []):
+        logs = st.get("logs", {})
+        calls = []
+        for k in sorted(k for k in logs if k.startswith("tool_call_")):
+            m = re.match(r"(\w+)\((.*)\)\s*$", str(logs[k]), re.S)
+            name, args = (m.group(1), m.group(2)) if m else (str(logs[k]), "{}")
+            try:
+                parsed = json.loads(args)
+            except ValueError:
+                parsed = {"raw": args}
+            calls.append({"name": name, "args": parsed, "call_id": k})
+        out.append({"role": "assistant", "content": str(logs.get("assistant_content", "")), "thinking": None, "tool_calls": calls,
+                    "usage": {"prompt_tokens": st.get("ob_len"), "completion_tokens": st.get("ac_len")}, "reward": st.get("reward")})
+        for k in sorted(k for k in logs if k.startswith("tool_result_")):
+            idx = k.split("_")[-1]
+            call = next((c for c in calls if c["call_id"] == f"tool_call_{idx}"), None)
+            out.append({"role": "tool", "name": call["name"] if call else "?", "content": str(logs[k]), "call_id": f"tool_call_{idx}"})
+    return out
+
+
 def _grade_from_metrics(m: dict[str, Any], notes: str = "", gate: str | None = None) -> dict[str, Any]:
     comps = {k: m.get(k) for k in ("format_ok", "citations_parse", "citations_exist", "citations_grounded", "identifier_grounded", "correctness", "efficiency")}
     if gate is None:
@@ -628,7 +650,8 @@ def trace_detail(trace_id: str) -> dict[str, Any]:
                  "gate_failed": None, "notes": "not graded: citation check only", "source": "check_citations"}
         return {"id": trace_id, "kind": "trace", "run": parts[1], "task_id": trace.task_id, "profile": trace.profile, "task": task,
                 "repo_id": task["repo_id"] if task else _repo_from_task_id(trace.task_id), "question": _question(trace, task),
-                "events": trace_events(trace), "stats": trace.stats.model_dump(), "answer": trace.answer, "grade": grade, "citations": cits}
+                "events": trace_events(trace), "stats": trace.stats.model_dump(), "answer": trace.answer, "grade": grade, "citations": cits,
+                "messages": [m.model_dump() for m in trace.messages]}
     if kind == "eval" and len(parts) == 4:
         prof, set_, tid = parts[1], parts[2], parts[3]
         p = paths.EVALS / prof / set_ / "traces" / f"{tid}.json"
@@ -646,7 +669,7 @@ def trace_detail(trace_id: str) -> dict[str, Any]:
             grade = {"reward": None, "components": {}, "gate_failed": None, "notes": "not graded", "source": "none"}
         return {"id": trace_id, "kind": "eval", "run": f"eval:{set_}", "task_id": tid, "profile": prof, "task": task, "repo_id": repo_id,
                 "question": _question(trace, task), "events": trace_events(trace), "stats": trace.stats.model_dump(), "answer": trace.answer,
-                "grade": grade, "citations": cits}
+                "grade": grade, "citations": cits, "messages": [m.model_dump() for m in trace.messages]}
     if kind == "rollout" and len(parts) == 5:
         run, n, g, t = parts[1], int(parts[2]), int(parts[3]), int(parts[4])
         p = _iteration_path(run, n)
@@ -665,7 +688,8 @@ def trace_detail(trace_id: str) -> dict[str, Any]:
         grade = _grade_from_metrics(tm, notes=f"training rollout, sampled at step {r.get('sampling_client_step', n)}")
         return {"id": trace_id, "kind": "rollout", "run": f"train:{run}", "task_id": f"group {g}", "profile": f"train:{run}@{r.get('sampling_client_step', n)}",
                 "task": {"source": tags[0] if tags else None, "task_type": tags[1] if len(tags) > 1 else None}, "repo_id": None,
-                "question": "", "events": events, "stats": stats, "answer": answer, "grade": grade, "citations": []}
+                "question": "", "events": events, "stats": stats, "answer": answer, "grade": grade, "citations": [],
+                "messages": rollout_messages(r), "messages_note": "Training rollout summaries log each turn's generation and tool results, not the system and user prompts; ob_len is the size of the prompt the model saw at that turn."}
     raise HTTPException(404, f"bad trace id {trace_id}")
 
 
