@@ -132,3 +132,15 @@ def test_grep_hits_count_as_seen_lines(t):
     t2 = RepoTools(REPO_ID, caps=Caps(grep_hits=3, grep_files=2))
     call(t2.grep, pattern="import")
     assert len(t2.files_read) == 3
+
+
+def test_find_symbol_and_overview_register_signature_lines_only(t):
+    call(t.find_symbol, name="Flask")
+    assert Span(path="src/flask/app.py", start=81, end=81) in t.files_read
+    assert not any(s.path == "src/flask/app.py" and s.end > s.start for s in t.files_read)   # never the whole range
+    n_before = len(t.files_read)
+    out = call(t.overview, path="src/flask/json/provider.py")
+    shown = [l for l in out.splitlines() if l.lstrip().startswith("L")]
+    assert len(t.files_read) - n_before == len(shown) and all(s.start == s.end for s in t.files_read[n_before:])
+    call(t.overview, path="src/flask")          # directory mode shows no line numbers: registers nothing
+    assert len(t.files_read) == n_before + len(shown)

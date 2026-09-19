@@ -82,9 +82,11 @@ def test_precheck_allows_normal_pipelines():
 
 def test_variants_change_tools_and_prompt_only(monkeypatch):
     monkeypatch.delenv("CODEQA_AGENT_VARIANT", raising=False)
-    default = RepoEnv(TASK, PROFILE)
-    assert [s["name"] for s in default.specs()] == ["overview", "find_symbol", "grep", "read_file", "list_dir"]
+    default = RepoEnv(TASK, PROFILE)                      # lean since 2026-09-19: no overview, structural tree map
+    assert [s["name"] for s in default.specs()] == ["find_symbol", "grep", "read_file", "list_dir"]
     assert "Repository map" in default.initial_messages()[1].content
+    full = RepoEnv(TASK, PROFILE, variant="full")
+    assert [s["name"] for s in full.specs()] == ["overview", "find_symbol", "grep", "read_file", "list_dir"]
     b = RepoEnv(TASK, PROFILE, variant="bash")
     assert [s["name"] for s in b.specs()] == ["bash"] and "nl -ba" in b.initial_messages()[0].content
     assert "Repository map" in b.initial_messages()[1].content

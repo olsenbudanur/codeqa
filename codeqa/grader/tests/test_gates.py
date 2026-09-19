@@ -73,6 +73,9 @@ def test_verbatim_paste_is_not_an_answer():
     assert not ok and "pasted" in why
     own = "The functions multiply their argument by their index [a.py:L1-L29]. Each one is a one-liner defined at module level."
     assert gates.verbatim_share(own, t) == 0.0
+    quoted = "Short answer.\n" + "\n".join(f"def function_number_{i}(arg): return arg * {i}" for i in range(1, 5)) + "\nThat is the pattern [a.py:L1-L4]."
+    assert gates.verbatim_share(quoted, t) == 0.0                    # four quoted lines are a snippet, not a pasted answer
+    assert gates.format_gate(quoted, t, Budget())[0]
 
 
 def test_budget_gate_counts_errors_as_calls():

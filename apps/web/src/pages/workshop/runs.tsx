@@ -12,13 +12,22 @@ import { Chip, ErrorNote, Loading, Page, Panel, Stat } from '@/components/worksh
 
 export const REWARD = 'env/all/reward/total'
 // Optimizer signals. Thresholds mirror codeqa/evals/monitor.py (KL > 0.05; entropy < 40% of step 0).
-const OPTIM: { key: string; label: string; ref?: (rows: MetricRow[]) => { y: number; label: string }[] }[] = [
-  { key: 'optim/kl_sample_train_v1', label: 'KL sampler vs trainer (v1)', ref: () => [{ y: 0.05, label: 'lr too high' }] },
-  { key: 'optim/kl_sample_train_v2', label: 'KL sampler vs trainer (v2)' },
-  { key: 'optim/post_kl', label: 'KL after the update' },
-  { key: 'optim/entropy', label: 'Policy entropy', ref: (rows) => { const e0 = rows[0]?.['optim/entropy']; return e0 ? [{ y: 0.4 * e0, label: '40% of step 0' }] : [] } },
+// Labels, captions and thresholds for the optimizer keys lane C logs (LOG 2026-09-20 00:50, metrics_patch.py).
+const OPTIM: { key: string; label: string; caption?: string; ref?: (rows: MetricRow[]) => { y: number; label: string }[]; domain?: [number | 'auto', number | 'auto'] }[] = [
+  { key: 'optim/kl_sample_train_v1', label: 'KL sampler vs trainer (v1)', caption: 'how far one update moved the policy from the weights that produced the batch', ref: () => [{ y: 0.05, label: 'lr too high' }] },
+  { key: 'optim/kl_sample_train_v2', label: 'KL sampler vs trainer (v2)', caption: 'second-order estimate of the same' },
+  { key: 'optim/post_kl', label: 'KL after the update', caption: 'only with --compute-post-kl' },
+  { key: 'optim/entropy', label: 'Policy entropy', caption: 'falls as the policy sharpens; collapse risk below 40% of step 0', ref: (rows) => { const e0 = rows[0]?.['optim/entropy']; return e0 ? [{ y: 0.4 * e0, label: '40% of step 0' }] : [] } },
+  { key: 'optim/nll', label: 'NLL of own samples', caption: 'the policy\'s confidence in what it sampled; falls as it sharpens' },
+  { key: 'optim/advantage_std', label: 'Advantage std', caption: 'whether groups still disagree; 0 = no gradient' },
+  { key: 'optim/frac_tokens_with_advantage', label: 'Tokens with a non-zero advantage', caption: 'share of action tokens that carry any signal', domain: [0, 1] },
+  { key: 'optim/importance_ratio_mean', label: 'Importance ratio, mean', caption: 'exp(train logp − sample logp); ~1 in sync training', ref: () => [{ y: 1, label: 'on-policy' }] },
+  { key: 'optim/importance_ratio_max', label: 'Importance ratio, max', caption: 'the worst token; spikes mean off-policy updates', ref: () => [{ y: 1, label: 'on-policy' }] },
+  { key: 'optim/clip_fraction', label: 'Clip fraction', caption: 'share of tokens with |ratio − 1| > 0.2; rising = the classic PPO warning', ref: () => [{ y: 0.2, label: 'watch' }], domain: [0, 1] },
+  { key: 'optim/action_tokens', label: 'Action tokens per step', caption: 'how much generated text the update was computed on' },
   { key: 'optim/lr', label: 'Learning rate' },
 ]
+const LOSS_KEYS = ['optim/loss', 'optim/loss_abs']
 const OPTIM_PREFIXES = ['optim/', 'kl_ref/', 'loss/']
 
 
@@ -192,7 +201,7 @@ function RunDetailPage({ name, overlay }: { name: string; overlay: string }) {
       {run && (
         <div className="space-y-4">
           <Panel title="Reward growth" aside={`${run.steps} steps, ${run.config.group_size ?? '?'} × ${run.config.groups_per_batch ?? '?'} episodes per step`}>
-            <MetricChart data={merged} series={rewardSeries} height={300} yDomain={[0, 'auto']} />
+            <MetricChart data={merged} series={rewardSeries} height={380} yDomain={[0, 'auto']} />
             <div className="mt-4 flex flex-wrap items-end gap-8 border-t pt-4">
               <Stat
                 label={`gain, last ${p.lastN} vs previous ${p.prevN} steps`}
@@ -278,22 +287,46 @@ export function OptimizerPanel({ rows, compact }: { rows: MetricRow[]; compact?:
   const present = (k: string) => rows.some((m) => m[k] !== undefined && m[k] !== null)
   const known = OPTIM.filter((o) => present(o.key))
   const extra = [...new Set(rows.flatMap((m) => Object.keys(m)))]
-    .filter((k) => OPTIM_PREFIXES.some((p) => k.startsWith(p)) && !OPTIM.some((o) => o.key === k) && present(k))
+    .filter((k) => OPTIM_PREFIXES.some((p) => k.startsWith(p)) && !OPTIM.some((o) => o.key === k) && !LOSS_KEYS.includes(k) && present(k))
     .sort()
-  if (known.length + extra.length === 0) return null
+  const hasLoss = LOSS_KEYS.some(present)
+  if (known.length + extra.length === 0 && !hasLoss) return null
   return (
     <Panel title="Optimizer" aside="how far each update moved the policy; gradient norms are not exposed by Tinker">
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      {hasLoss && (
+        <div className="mb-5">
+          <p className="mb-1 text-[13px]">Loss</p>
+          <p className="mb-2 text-[11.5px] leading-4 text-muted-foreground">
+            The importance-sampling policy-gradient surrogate, −mean(ratio × advantage). Advantages are centred within each group, so it sits near zero by design: drift and sign changes are informative, the level is not, and it will not fall like a supervised loss. |loss| is the magnitude of the learning signal; zero means there was nothing to learn from.
+          </p>
+          <MetricChart
+            data={rows}
+            height={compact ? 200 : 300}
+            refLines={[{ y: 0, label: '' }]}
+            series={[
+              { key: 'optim/loss', label: 'loss (surrogate)', color: SERIES[1] },
+              { key: 'optim/loss_abs', label: '|loss| (signal magnitude)', color: SERIES[0] },
+            ]}
+          />
+        </div>
+      )}
+      {!hasLoss && rows.length > 0 && (
+        <p className="mb-4 rounded-md border border-dashed px-3 py-2 text-[12px] text-muted-foreground">
+          No loss for this run: it was launched before the trainer logged one. Runs launched after 2026-09-20 00:50 carry `optim/loss` and `optim/loss_abs`.
+        </p>
+      )}
+      <div className="grid gap-5 md:grid-cols-2 2xl:grid-cols-3">
         {known.map((o) => (
           <div key={o.key}>
-            <p className="mb-1 text-[13px]">{o.label}</p>
-            <MetricChart data={rows} height={compact ? 120 : 150} legend={false} series={[{ key: o.key, label: o.label, color: SERIES[1] }]} refLines={o.ref?.(rows) ?? []} />
+            <p className="text-[13px]">{o.label}</p>
+            {o.caption && <p className="mb-1 truncate text-[11px] text-muted-foreground" title={o.caption}>{o.caption}</p>}
+            <MetricChart data={rows} height={compact ? 160 : 220} legend={false} yDomain={o.domain} series={[{ key: o.key, label: o.label, color: SERIES[1] }]} refLines={o.ref?.(rows) ?? []} />
           </div>
         ))}
         {extra.map((k) => (
           <div key={k}>
             <p className="mb-1 font-mono text-[12px]">{k}</p>
-            <MetricChart data={rows} height={compact ? 120 : 150} legend={false} series={[{ key: k, label: k, color: SERIES[1] }]} />
+            <MetricChart data={rows} height={compact ? 160 : 220} legend={false} series={[{ key: k, label: k, color: SERIES[1] }]} />
           </div>
         ))}
       </div>

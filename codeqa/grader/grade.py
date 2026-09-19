@@ -68,11 +68,7 @@ async def grade(task: Task, trace: Trace, variant: str = "none", judge_client: J
     else:
         comps.correctness, note = verify(task, answer, report, repo)
 
-    lf = gates.length_factor(answer, budget)
-    if lf < 1.0:
-        comps.efficiency *= lf                   # length rides in the efficiency component (contract has no separate field)
-        note += f"; answer {gates.approx_tokens(answer)} tokens > cap {budget.max_answer_tokens}: x{lf:.2f}"
-    reward = comps.correctness * comps.efficiency
+    reward = comps.correctness * comps.efficiency        # length is NOT here: the trainer applies gates.length_factor as shaping
     return GradeResult(reward=reward, components=comps, gate_failed=None, notes=note)
 
 

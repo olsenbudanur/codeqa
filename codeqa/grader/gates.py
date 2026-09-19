@@ -83,6 +83,7 @@ def extract_answer(trace: Trace) -> str:
 
 
 VERBATIM_MAX_SHARE = 0.5     # answers whose lines are mostly pasted tool output are not answers
+VERBATIM_MIN_LINES = 8       # ...but quoting a few lines of code is fine: the gate needs at least this many pasted lines
 LENGTH_FLOOR = 0.1
 
 
@@ -97,10 +98,13 @@ def verbatim_share(answer: str, trace: Trace) -> float:
                 if len(ln) >= 20:
                     tool_lines.add(ln)
     lines = [re.sub(r"^\s*L?\d+\s*\|\s?", "", CITATION_RE.sub("", ln)).strip() for ln in answer.splitlines()]
-    lines = [ln for ln in lines if len(ln) >= 20]
+    lines = [ln for ln in lines if len(ln) >= 8]                       # every real line counts in the denominator
     if not lines:
         return 0.0
-    return sum(1 for ln in lines if ln in tool_lines) / len(lines)
+    pasted = sum(1 for ln in lines if len(ln) >= 20 and ln in tool_lines)
+    if pasted < VERBATIM_MIN_LINES:
+        return 0.0                                                     # a short quoted snippet is not a pasted answer
+    return pasted / len(lines)
 
 
 def length_factor(answer: str, budget: Budget) -> float:

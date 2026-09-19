@@ -18,8 +18,9 @@ from codeqa.shared import paths
 
 HEADLINE_KEYS = ("reward", "correctness", "citations_grounded", "tool_calls_per_correct")
 EXTRA_KEYS = ("format_ok", "citations_parse", "prompt_tokens", "answer_tokens", "judge_error", "group_reward_std", "unique_tool_sequences_per_group")
-OPTIM_KEYS = ("optim/entropy", "optim/kl_sample_train_v1", "optim/post_kl", "kl_ref/kl")
-TITLES = {"optim/entropy": "policy entropy", "optim/kl_sample_train_v1": "KL sampler vs trainer", "optim/post_kl": "KL after update",
+OPTIM_KEYS = ("optim/loss", "optim/loss_abs", "optim/advantage_std", "optim/entropy", "optim/kl_sample_train_v1", "optim/clip_fraction", "optim/post_kl", "kl_ref/kl")
+TITLES = {"optim/loss": "surrogate loss (near 0 by design)", "optim/loss_abs": "learning signal |ratio x adv|", "optim/advantage_std": "advantage std",
+          "optim/clip_fraction": "clip fraction (|ratio-1| > 0.2)", "optim/entropy": "policy entropy", "optim/kl_sample_train_v1": "KL sampler vs trainer", "optim/post_kl": "KL after update",
           "kl_ref/kl": "KL to reference model", "reward": "reward", "correctness": "correctness", "citations_grounded": "citation validity (grounded)",
           "tool_calls_per_correct": "tool calls per correct answer", "format_ok": "format ok", "citations_parse": "citations parse",
           "prompt_tokens": "prompt tokens / episode", "answer_tokens": "answer tokens", "judge_error": "judge error rate",

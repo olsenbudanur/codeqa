@@ -53,8 +53,9 @@ def _summary_line(s: str, width: int) -> str:
     return s if len(s) <= width else s[: width - 1].rsplit(" ", 1)[0] + "…"
 
 
-def render(manifest: Manifest, symbols: list[IndexSymbol], summaries: dict[str, str], *, level: int, max_depth: int) -> str:
-    """level 0 = fullest; 3 = directories + summaries only."""
+def render(manifest: Manifest, symbols: list[IndexSymbol], summaries: dict[str, str], *, level: int, max_depth: int,
+           collapse_demoted: bool = False) -> str:
+    """level 0 = fullest; 3 = directories + summaries only. collapse_demoted folds tests/docs/examples to one line each."""
     by_file: dict[str, list[str]] = defaultdict(list)
     for s in symbols:
         if s.parent is None:
@@ -97,6 +98,10 @@ def render(manifest: Manifest, symbols: list[IndexSymbol], summaries: dict[str, 
             child = f"{name}" if dpath == "." else f"{dpath}/{name}"
             if name.startswith("."):
                 hidden_count += 1
+                continue
+            if collapse_demoted and demoted(name):
+                n_files = sum(len(files_in[d]) for d in files_in if d == child or d.startswith(child + "/"))
+                out.append(f"{indent}{'' if dpath == '.' else '  '}{name}/  (+{n_files} files)")
                 continue
             emit_dir(child, node[name], depth + (0 if dpath == "." else 1))
         files = files_in.get(dpath, [])
@@ -146,4 +151,37 @@ def build_map(manifest: Manifest, symbols: list[IndexSymbol], summaries: dict[st
         p = map_path(manifest.repo_id)
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(text)
+    return text
+
+
+def tree_map_path(repo_id: str, max_tokens: int) -> Path:
+    return paths.index_dir(repo_id) / f"map_tree_{max_tokens}.txt"
+
+
+def tree_map(repo_id: str, max_tokens: int = 1000) -> str:
+    """Structural map only: directories, files, top symbols; no summaries, so no Haiku pass is needed. Cached on disk."""
+    p = tree_map_path(repo_id, max_tokens)
+    if p.exists():
+        return p.read_text()
+    from codeqa.agent.indexing.index import load_symbols
+    from codeqa.agent.indexing.snapshot import load_manifest
+    manifest = load_manifest(repo_id)
+    symbols = load_symbols(repo_id) if (paths.index_dir(repo_id) / "symbols.json").exists() else []
+    # tree mode never drops to directories-only: keep file names, shed symbols, fold tests/docs/examples, then depth
+    text = ""
+    for level in (1, 2):
+        for max_depth in (99, 4, 3, 2):
+            text = render(manifest, symbols, {}, level=level, max_depth=max_depth, collapse_demoted=True)
+            if count_tokens(text) <= max_tokens:
+                break
+        else:
+            continue
+        break
+    if count_tokens(text) > max_tokens:   # huge repo: keep the head (source dirs come first) and say so
+        lines = text.splitlines()
+        while lines and count_tokens("\n".join(lines)) > max_tokens - 10:
+            lines = lines[: max(1, int(len(lines) * 0.8))]
+        text = "\n".join(lines) + "\n(map truncated: use list_dir for the rest)\n"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(text)
     return text

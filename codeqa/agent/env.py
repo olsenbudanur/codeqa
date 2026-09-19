@@ -12,10 +12,9 @@ import hashlib
 from typing import Any, Awaitable, Callable
 
 from codeqa.agent.curation import DEFAULT_CAPS, Caps
-from codeqa.agent.indexing.repomap import load_map
 from codeqa.agent.prompts import system_prompt, user_prompt
 from codeqa.agent.tools import RepoTools
-from codeqa.agent.variants import AgentVariant, resolve
+from codeqa.agent.variants import AgentVariant, repo_map_text, resolve
 from codeqa.shared.contracts import (Budget, EndpointProfile, Message, Span, StopReason, Task, TaskType, Trace,
                                      TraceStats)
 
@@ -29,11 +28,10 @@ class RepoEnv:
         self.profile = profile
         self.repo_id = task.repo_id
         self.budget: Budget = task.effective_budget()
-        self.variant: AgentVariant = resolve(variant)   # None -> CODEQA_AGENT_VARIANT or "default"
+        # explicit arg > the profile's own variant (a checkpoint is served with what it trained on) > CODEQA_AGENT_VARIANT > default
+        self.variant: AgentVariant = resolve(variant or profile.variant)
         self.tools_obj = RepoTools(task.repo_id, max_tool_calls=self.budget.max_tool_calls, caps=caps)
-        self.repo_map = load_map(task.repo_id) if self.variant.include_map else ""
-        if self.variant.include_map and not self.repo_map:
-            raise FileNotFoundError(f"no map.txt for {task.repo_id}; run `python -m codeqa.agent.indexing.cli map {task.repo_id}`")
+        self.repo_map = repo_map_text(task.repo_id, self.variant)   # '' | ~1k structural tree | summarised map.txt
 
     @classmethod
     def from_question(cls, repo_id: str, question: str, profile: EndpointProfile, task_type: TaskType = "explain",

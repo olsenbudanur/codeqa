@@ -67,6 +67,9 @@ def main(argv: list[str] | None = None) -> int:
     if_exists = spec.extra.pop("_if_exists", "delete")
     from tinker_cookbook import cli_utils
     from tinker_cookbook.rl import train
+
+    from codeqa.trainer.metrics_patch import install
+    install()                                   # optim/loss and friends in metrics.jsonl
     config = build_config(spec)
     cli_utils.check_log_dir(config.log_path, behavior_if_exists=if_exists)
     print(f"run {spec.run_name}: model={config.model_name} lr={config.learning_rate:.2e} lora_rank={config.lora_rank} "

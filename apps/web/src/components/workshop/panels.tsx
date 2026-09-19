@@ -43,7 +43,7 @@ export function withDerived(run: RunDetail): MetricRow[] {
 // 1. Signal density: what share of groups carry a gradient at all.
 export function SignalDensityPanel({ rows, compact }: { rows: MetricRow[]; compact?: boolean }) {
   if (!has(rows, E('by_group/frac_mixed'))) return null
-  const h = compact ? 150 : 200
+  const h = compact ? 180 : 300
   return (
     <Panel title="Signal density" aside="collapse early warning: groups with mixed reward carry the gradient">
       <div className={compact ? '' : 'grid gap-4 md:grid-cols-2'}>
@@ -87,7 +87,7 @@ export function GateFunnelPanel({ rows, compact }: { rows: MetricRow[]; compact?
     <Panel title="Gate funnel" aside="share of episodes stopped at each gate; the rest reached grading">
       <StackedBars
         data={rows}
-        height={compact ? 150 : 220}
+        height={compact ? 200 : 340}
         series={[
           { key: E('gate_format'), label: 'format', color: SERIES[1] },
           { key: E('gate_citations'), label: 'citations', color: SERIES[3] },
@@ -108,7 +108,7 @@ export function FormatEmergencePanel({ rows, compact }: { rows: MetricRow[]; com
     <Panel title="Format emergence" aside="citations_parse is the wall the step-0 probe found">
       <MetricChart
         data={rows}
-        height={compact ? 150 : 220}
+        height={compact ? 200 : 320}
         yDomain={[0, 1]}
         series={[
           { key: E('citations_parse'), label: 'citations present', color: SERIES[0] },
@@ -138,7 +138,7 @@ export function ShapingPanel({ rows }: { rows: MetricRow[] }) {
           <p className="mb-1 text-[13px]">Reward</p>
           <MetricChart
             data={rows}
-            height={200}
+            height={280}
             series={[
               { key: 'reward', label: 'unshaped (reported)', color: SERIES[0] },
               ...(shaped ? [{ key: E('reward_shaped'), label: 'shaped (trains)', color: SERIES[1] }] : []),
@@ -147,7 +147,7 @@ export function ShapingPanel({ rows }: { rows: MetricRow[] }) {
         </div>
         <div>
           <p className="mb-1 text-[13px]">Rates</p>
-          <MetricChart data={rows} height={200} yDomain={[0, 1]} series={rates} />
+          <MetricChart data={rows} height={280} yDomain={[0, 1]} series={rates} />
         </div>
       </div>
     </Panel>
@@ -166,13 +166,13 @@ export function BreakdownPanel({ rows }: { rows: MetricRow[] }) {
         {bySrc.length > 0 && (
           <div>
             <p className="mb-1 text-[13px]">By source</p>
-            <MetricChart data={rows} height={200} yDomain={[0, 'auto']} series={bySrc.map((s, i) => ({ key: `env/${s}/reward`, label: s, color: SERIES[i] }))} />
+            <MetricChart data={rows} height={280} yDomain={[0, 'auto']} series={bySrc.map((s, i) => ({ key: `env/${s}/reward`, label: s, color: SERIES[i] }))} />
           </div>
         )}
         {byType.length > 0 && (
           <div>
             <p className="mb-1 text-[13px]">By task type</p>
-            <MetricChart data={rows} height={200} yDomain={[0, 'auto']} series={byType.map((t, i) => ({ key: `env/${t}/reward`, label: t, color: SERIES[i] }))} />
+            <MetricChart data={rows} height={280} yDomain={[0, 'auto']} series={byType.map((t, i) => ({ key: `env/${t}/reward`, label: t, color: SERIES[i] }))} />
           </div>
         )}
       </div>
@@ -195,13 +195,13 @@ export function EfficiencyPanel({ rows }: { rows: MetricRow[] }) {
   if (items.length === 0) return null
   return (
     <Panel title="Efficiency" aside={has(rows, 'tool_calls_per_correct') ? 'per-correct ratios use the correct key, not mean reward' : 'per-correct ratios appear once the run logs correct'}>
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-5 md:grid-cols-2 2xl:grid-cols-3">
         {items.map((it) => (
           <div key={it.key}>
             <p className="mb-1 text-[13px]">{it.label}</p>
             <MetricChart
               data={rows}
-              height={140}
+              height={220}
               legend={false}
               yDomain={[0, 'auto']}
               series={[{ key: it.key, label: 'train', color: SERIES[0] }, ...(it.ev && has(rows, it.ev) ? [{ key: it.ev, label: 'held-out', color: SERIES[2], kind: 'points' as const }] : [])]}
@@ -239,7 +239,7 @@ export function ThroughputPanel({ rows, run }: { rows: MetricRow[]; run: RunDeta
             <p className="mb-1 text-[13px]">Judge errors</p>
             <MetricChart
               data={rows}
-              height={150}
+              height={240}
               yDomain={[0, 1]}
               series={[
                 { key: E('judge_error_rate'), label: 'samples with a judge error', color: SERIES[1] },
@@ -253,7 +253,7 @@ export function ThroughputPanel({ rows, run }: { rows: MetricRow[]; run: RunDeta
             <p className="mb-1 text-[13px]">Time per step</p>
             <MetricChart
               data={rows}
-              height={150}
+              height={240}
               yDomain={[0, 'auto']}
               series={[
                 { key: 'time/policy_sample:total', label: 'sampling', color: SERIES[0] },
@@ -309,7 +309,7 @@ export function HeldOutPanel({ rows, compact }: { rows: MetricRow[]; compact?: b
         })}
       </div>
       {!compact && (
-        <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div className="mt-4 grid gap-5 md:grid-cols-2 2xl:grid-cols-3">
           {[
             { key: 'eval_reward', label: 'reward' },
             { key: EV('correctness'), label: 'correctness', domain: [0, 1] as [number, number] },
@@ -324,7 +324,7 @@ export function HeldOutPanel({ rows, compact }: { rows: MetricRow[]; compact?: b
             .map((c) => (
               <div key={c.key}>
                 <p className="mb-1 text-[13px]">{c.label}</p>
-                <MetricChart data={evalRows} height={130} legend={false} yDomain={c.domain ?? [0, 'auto']} series={[{ key: c.key, label: 'held-out', color: SERIES[2] }]} />
+                <MetricChart data={evalRows} height={220} legend={false} yDomain={c.domain ?? [0, 'auto']} series={[{ key: c.key, label: 'held-out', color: SERIES[2] }]} />
               </div>
             ))}
         </div>

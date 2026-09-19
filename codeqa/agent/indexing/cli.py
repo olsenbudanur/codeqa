@@ -5,9 +5,9 @@
   uv run python -m codeqa.agent.indexing.cli summarize pallets__flask__85c5d93
   uv run python -m codeqa.agent.indexing.cli map pallets__flask__85c5d93
   uv run python -m codeqa.agent.indexing.cli nodoc pallets__flask__85c5d93
-  uv run python -m codeqa.agent.indexing.cli all --repos data/repo_list.txt [--fast] [--nodoc]
+  uv run python -m codeqa.agent.indexing.cli all --repos data/repo_list.txt [--summaries] [--nodoc]
 
-Repo list lines: `owner/repo@sha` (sha may be short); `#` comments allowed. `--fast` skips summaries.
+Repo list lines: `owner/repo@sha` (sha may be short); `#` comments allowed. Haiku summaries only with `--summaries`.
 """
 from __future__ import annotations
 
@@ -97,7 +97,7 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("snapshot"); p.add_argument("spec"); p.add_argument("--force", action="store_true")
     for name in ("index", "summarize", "map", "nodoc"):
         sub.add_parser(name).add_argument("repo_id")
-    p = sub.add_parser("all"); p.add_argument("--repos", required=True); p.add_argument("--fast", action="store_true"); p.add_argument("--nodoc", action="store_true")
+    p = sub.add_parser("all"); p.add_argument("--repos", required=True); p.add_argument("--summaries", action="store_true", help="also run Haiku summaries + the full map (off by default; only the `full`/`tree_overview` agent variants need them)"); p.add_argument("--fast", action="store_true", help="(now the default; kept for old scripts)"); p.add_argument("--nodoc", action="store_true")
     a = ap.parse_args(argv)
     if a.cmd == "snapshot":
         cmd_snapshot(a.spec, a.force)
@@ -110,7 +110,7 @@ def main(argv: list[str] | None = None) -> int:
     elif a.cmd == "nodoc":
         cmd_nodoc(a.repo_id)
     elif a.cmd == "all":
-        return cmd_all(a.repos, a.fast, a.nodoc)
+        return cmd_all(a.repos, fast=not a.summaries, nodoc=a.nodoc)
     return 0
 
 

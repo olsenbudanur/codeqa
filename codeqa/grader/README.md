@@ -29,8 +29,8 @@ correctness:
   trace | explain with rubric or reference  Haiku judge: fraction of atomic items satisfied (rubric mode) or of ≤6 facts it
                                            derives from the reference (reference mode). 3 retries with backoff, then NaN.
 efficiency (efficiency.py, `--variant`): none = 1.0 (run one) · multiplicative · hard_cap · token_cost (see below)
-length:  soft, not a gate: factor = 1 up to max_answer_tokens, then cap / tokens (floor 0.1), folded into `efficiency`
-reward = correctness × efficiency × length_factor    |    judge failure → reward NaN, gate_failed = judge_error (trainer maps NaN → group mean)
+length:  NOT graded. `gates.length_factor` (1 up to the cap, then cap/tokens, floor 0.1) is applied by the trainer only (shaping); metrics `length_factor`, `answer_over_cap`
+reward = correctness × efficiency    |    judge failure → reward NaN, gate_failed = judge_error (trainer maps NaN → group mean)
 ```
 
 Only the final assistant content is graded; `<think>` blocks and the `thinking` field are dropped. A last turn that still

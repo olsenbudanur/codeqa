@@ -754,6 +754,15 @@ def repo_tools(repo_id: str) -> RepoTools:
     return t
 
 
+def _tree_map(repo_id: str) -> str:
+    """Lean-variant map (no summaries needed); '' when the repo is not indexed yet."""
+    try:
+        from codeqa.agent.indexing.repomap import tree_map
+        return tree_map(repo_id)
+    except Exception:  # noqa: BLE001 - overview must not 500 on a half-indexed repo
+        return ""
+
+
 @router.get("/repos/{repo_id}/overview")
 def repo_overview(repo_id: str) -> dict[str, Any]:
     mp = paths.repo_dir(repo_id) / "manifest.json"
@@ -778,7 +787,7 @@ def repo_overview(repo_id: str) -> dict[str, Any]:
         "dropped": m.get("dropped", {}),
         "languages": dict(langs.most_common(12)),
         "top_dirs": dict(top_dirs.most_common(20)),
-        "map": map_p.read_text() if map_p.exists() else "",
+        "map": map_p.read_text() if map_p.exists() else _tree_map(repo_id),
         "map_lines": len(map_p.read_text().splitlines()) if map_p.exists() else 0,
         "n_summaries": len(summ) if isinstance(summ, dict) else 0,
         "nodoc": repo_id.endswith("__nodoc"),
@@ -792,7 +801,8 @@ def repo_tool_specs(repo_id: str) -> dict[str, Any]:
         raise HTTPException(404, f"unknown repo {repo_id}")
     t = repo_tools(repo_id)
     caps = t.caps
-    return {"tools": t.specs(), "caps": {k: getattr(caps, k) for k in dir(caps) if not k.startswith("_") and isinstance(getattr(caps, k), (int, float))}}
+    from codeqa.agent.variants import resolve as resolve_variant
+    return {"tools": t.specs(resolve_variant(None).tools), "variant": resolve_variant(None).name, "caps": {k: getattr(caps, k) for k in dir(caps) if not k.startswith("_") and isinstance(getattr(caps, k), (int, float))}}
 
 
 from pydantic import BaseModel as _BaseModel  # noqa: E402

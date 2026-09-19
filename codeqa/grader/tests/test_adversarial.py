@@ -17,7 +17,7 @@ EXPECTED = {
     "good_locate": (None, 1.0),
     "good_value": (None, 1.0),
     "good_enumerate": (None, 1.0),
-    "padded": (None, None),                  # over the answer cap: no longer a gate, reward scaled by cap/len (checked below)
+    "padded": (None, 1.0),                   # over the answer cap: length is not the grader's business (trainer shaping only)
     "wrong": (None, 0.0),                    # verifiable type, judge never consulted, literal mismatch
     "restated": (None, 0.0),                 # passes gates, satisfies no rubric item
     "fabricated": ("citations", 0.0),        # path does not exist
@@ -37,10 +37,7 @@ async def test_adversarial_trace_scores_as_intended(name, tasks, trace, repo):
     gate, reward = EXPECTED[name]
     r = await grade(tasks[tr.task_id], tr, judge_client=KeywordJudge(), repo=repo)
     assert r.gate_failed == gate, r.notes
-    if reward is None:
-        assert 0.0 < r.reward < 1.0 and r.components.efficiency < 1.0, r.notes     # padded: correct but scaled down by length
-    else:
-        assert r.reward == pytest.approx(reward), r.notes
+    assert r.reward == pytest.approx(reward), r.notes
 
 
 async def test_wrong_answer_never_reaches_the_judge(tasks, trace, repo):

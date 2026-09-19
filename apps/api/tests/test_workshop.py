@@ -147,7 +147,7 @@ def test_repo_overview_and_tool_console(client: TestClient) -> None:
     ov = client.get(f"/repos/{REPO}/overview").json()
     assert ov["n_files"] == 1 and ov["lines"] == 20 and ov["map"].startswith("pkg/") and ov["files"][0]["path"] == "pkg/mod.py"
     specs = client.get(f"/repos/{REPO}/tools").json()
-    assert {t["name"] for t in specs["tools"]} == {"overview", "find_symbol", "grep", "read_file", "list_dir"}
+    assert {t["name"] for t in specs["tools"]} == {"find_symbol", "grep", "read_file", "list_dir"}   # lean default (2026-09-19)
     r = client.post(f"/repos/{REPO}/tool", json={"name": "read_file", "args": {"path": "pkg/mod.py", "start": 2, "end": 3}}).json()
     assert "line 2" in r["output"] and r["error"] is False and r["files_read"] == [{"path": "pkg/mod.py", "start": 2, "end": 3}]
     bad = client.post(f"/repos/{REPO}/tool", json={"name": "read_file", "args": {"path": "nope.py"}}).json()

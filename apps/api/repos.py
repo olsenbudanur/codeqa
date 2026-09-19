@@ -43,9 +43,10 @@ def _symbol_count(repo_id: str) -> int | None:
 
 
 def repo_summary(repo_id: str) -> dict[str, Any] | None:
-    """One `GET /repos` row, or None when the repo has no manifest or no map yet."""
+    """One `GET /repos` row, or None when the repo has no manifest or no symbol index yet (the lean default agent
+    needs only those; `summaries`/`map` report whether the `full` variant could also run)."""
     mpath = paths.repo_dir(repo_id) / "manifest.json"
-    if not mpath.exists() or not (paths.index_dir(repo_id) / "map.txt").exists():
+    if not mpath.exists() or not (paths.index_dir(repo_id) / "symbols.json").exists():
         return None
     m = json.loads(mpath.read_text())
     files = m.get("files", [])

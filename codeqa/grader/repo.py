@@ -41,10 +41,30 @@ class RepoFiles:
         return cls(repo_id=repo_id, root=root if root.is_dir() else None, symbols=symbols)
 
     def normalize(self, path: str) -> str:
+        """Clean the path; a bare basename (or a suffix like `auth/session.py`) that matches exactly one snapshot file
+        resolves to it (models often cite the filename alone; SWE-QA references do too, LOG 2026-09-18 13:05)."""
         p = path.strip().replace("\\", "/")
         while p.startswith("./"):
             p = p[2:]
-        return p.lstrip("/")
+        p = p.lstrip("/")
+        if self.root is not None and not (self.root / p).is_file():
+            hits = self._suffix_index().get(p.rsplit("/", 1)[-1], ())
+            matches = [h for h in hits if h == p or h.endswith("/" + p)]
+            if len(matches) == 1:
+                return matches[0]
+        return p
+
+    def _suffix_index(self) -> dict[str, list[str]]:
+        """basename -> all snapshot files with that basename (walks the snapshot once)."""
+        if not hasattr(self, "_suffix"):
+            idx: dict[str, list[str]] = {}
+            if self.root is not None:
+                for fp in self.root.rglob("*"):
+                    if fp.is_file():
+                        rel = fp.relative_to(self.root).as_posix()
+                        idx.setdefault(fp.name, []).append(rel)
+            self._suffix = idx
+        return self._suffix
 
     def line_count(self, path: str) -> int | None:
         """Number of lines in the file, or None if the file does not exist in the snapshot."""

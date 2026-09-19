@@ -19,7 +19,7 @@ TRAIN_COLS = ("reward", "reward_shaped", "correctness", "format_ok", "citations_
               "group_reward_std", "unique_tool_sequences_per_group", "stop_budget", "stop_max_turns", "gate_format",
               "gate_citations", "gate_grounding", "judge_error", "no_answer_penalty")
 EVAL_COLS = ("reward", "correctness", "format_ok", "citations_grounded", "tool_calls", "stop_budget", "stop_max_turns")
-OPTIM_COLS = ("optim/lr", "optim/entropy", "optim/kl_sample_train_v1", "optim/kl_sample_train_v2", "optim/post_kl", "kl_ref/kl", "time/total")
+OPTIM_COLS = ("optim/lr", "optim/loss", "optim/loss_abs", "optim/advantage_std", "optim/entropy", "optim/kl_sample_train_v1", "optim/importance_ratio_max", "optim/clip_fraction", "optim/post_kl", "kl_ref/kl", "time/total")
 SHORT = {"reward": "rew", "reward_shaped": "shaped", "correctness": "corr", "format_ok": "fmt", "citations_grounded": "grnd",
          "tool_calls": "calls", "answer_tokens": "ans_tok", "group_reward_std": "std", "unique_tool_sequences_per_group": "uniq",
          "stop_budget": "s_bud", "stop_max_turns": "s_turn", "gate_format": "g_fmt", "gate_citations": "g_cit",
@@ -95,6 +95,8 @@ def checks(rows: list[dict[str, Any]], prefix: str = "env/all") -> list[str]:
     ent, ent0 = last.get("optim/entropy"), first.get("optim/entropy")
     if ent is not None and ent0 and ent < 0.4 * ent0:
         out.append(f"step {step}: entropy {ent:.3f} is <40 % of step 0 ({ent0:.3f}): policy is sharpening fast (collapse risk)")
+    if g(last, "gate_grounding") > 0.2 and g(last, "gate_grounding") > g(first, "gate_grounding") + 0.1:
+        out.append(f"step {step}: grounding gate fails {g(last, 'gate_grounding'):.0%} (step 0: {g(first, 'gate_grounding'):.0%}): the policy is citing lines it did not read; the gate is holding, watch that reward does not stall")
     if g(last, "judge_error") > 0.1:
         out.append(f"step {step}: judge_error={g(last, 'judge_error'):.0%}: those samples get the group mean (no signal)")
     if len(rs) >= 4:

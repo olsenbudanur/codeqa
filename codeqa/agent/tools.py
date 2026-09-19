@@ -94,6 +94,8 @@ class RepoTools:
                 lines.append(f"{indent}L{s.start}-L{s.end}  {s.kind}  {truncate(s.signature, self.caps.signature_chars)}")
             if not syms:
                 lines.append("(no indexed symbols; use read_file)")
+            shown = max(cap - (2 if self.summaries.get(p) else 1), 0)   # header (+ summary) lines come first
+            self.files_read.extend(Span(path=p, start=s.start, end=s.start) for s in syms[:shown])   # signature lines shown
             return self._finish("\n".join(cap_lines(lines, cap, "(+{n} more symbols; use find_symbol or read_file)")))
         if p not in self._dirs:
             return self._finish(not_found("path", p, self._paths + sorted(self._dirs)), error=True)
@@ -147,6 +149,8 @@ class RepoTools:
         cap = self.caps.symbol_hits
         lines = [f"{s.path}:L{s.start}-L{s.end}  {s.kind}  {truncate(s.signature, self.caps.signature_chars)}"
                  + (f"  [in {s.parent}]" if s.parent else "") for s in hits[:cap]]
+        # the hit shows the signature line's content, so that one line is citable (decision #7); the range is not
+        self.files_read.extend(Span(path=s.path, start=s.start, end=s.start) for s in hits[:cap])
         if len(hits) > cap:
             lines.append(f"(+{len(hits) - cap} more; narrow with kind or file_pattern)")
         return self._finish(f"{len(hits)} match(es){note}:\n" + "\n".join(lines))

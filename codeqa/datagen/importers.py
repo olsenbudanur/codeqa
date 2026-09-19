@@ -19,6 +19,7 @@ from codeqa.datagen import cache
 from codeqa.datagen.repos import ensure_repo
 from codeqa.datagen.resolve import RepoIndex
 from codeqa.datagen.sources import import_deepcodebench as dcb
+from codeqa.datagen.sources import import_codeqabench as cqb
 from codeqa.datagen.sources import import_sweqa as sq
 from codeqa.shared import paths
 from codeqa.shared.contracts import Task
@@ -129,4 +130,33 @@ def import_sweqa() -> dict[str, Any]:
     _log(f"  sweqa: {n} records; citations {agg['in_range']}/{agg['extracted']} resolved overall; "
          f"{agg['tasks_with_citations']}/{n} tasks with >=1")
     _save_report("sweqa", report)
+    return report
+
+
+def import_codeqabench() -> dict[str, Any]:
+    """528 code-derivable Code-QA-Bench rows -> data/tasks/eval/codeqabench.jsonl (repos snapshotted at repos.json SHAs)."""
+    t0 = time.time()
+    repos, rows = cqb.load()
+    indexes: dict[str, RepoIndex] = {}
+    for key in sorted({r["repo"] for r in rows}):
+        owner, name, sha = cqb.owner_repo(repos, key)
+        m, syms = ensure_repo(owner, name, sha)
+        indexes[key] = RepoIndex(m, syms)
+    tasks: list[Task] = []
+    raw_n = ok_n = 0
+    for r in rows:
+        plain = cqb.to_task(r, repos)
+        t = cqb.to_task(r, repos, index=indexes[r["repo"]])
+        raw_n += len(plain.grading.expected_paths); ok_n += len(t.grading.expected_paths)
+        tasks.append(t)
+    out = paths.TASKS_EVAL / "codeqabench.jsonl"
+    n = write(out, tasks)
+    report = {"source": "codeqabench", "records": n, "file": str(out.relative_to(paths.ROOT)),
+              "repos": {k: indexes[k].repo_id for k in indexes}, "types": dict(Counter(t.task_type for t in tasks)),
+              "key_files_mentioned": raw_n, "key_files_resolved": ok_n,
+              "rubric_items_mean": round(sum(len(t.grading.rubric) for t in tasks) / max(n, 1), 2),
+              "condition": "documented (our snapshots keep docs; the paper's primary condition strips them)",
+              "seconds": round(time.time() - t0, 1)}
+    _save_report("codeqabench", report)
+    _log(f"  codeqabench: {n} records over {len(indexes)} repos; key_files {ok_n}/{raw_n} resolved; types {report['types']}; {report['seconds']}s")
     return report

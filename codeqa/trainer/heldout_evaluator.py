@@ -23,7 +23,7 @@ class HeldoutEvaluator(RLTestSetEvaluator):
                  judge_model: str | None = None, offline_judge: bool = False, max_tasks: int | None = None,
                  temperature: float = EVAL_TEMPERATURE):
         tasks = load_tasks(Path(tasks_path), max_tasks, shuffle=False)
-        builders = builders_for(tasks, profile_name, group_size=1, variant=variant, judge_model=judge_model, offline_judge=offline_judge, grounded_credit=0.0)   # eval reports the unshaped reward
+        builders = builders_for(tasks, profile_name, group_size=1, variant=variant, judge_model=judge_model, offline_judge=offline_judge, grounded_credit=0.0, length_shaping=False)   # eval reports the unshaped, length-free reward
         super().__init__(CodeQADataset(builders, batch_size=max(len(builders), 1)), max_tokens=max_tokens, name=name)
         self.temperature = temperature
 

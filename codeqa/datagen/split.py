@@ -130,7 +130,8 @@ def build(lo: float = 0.1, hi: float = 0.9, per_repo_cap: int = 120, keep_unmeas
     counts = {"train": _table(capped), "reserve_hard": len(hard), "reserve_easy": len(easy), "over_cap": len(overflow),
               "unmeasured": len(unmeasured), "kept_unmeasured": keep_unmeasured, "deduped": len(dropped),
               "eval": {"deepcodebench_test": _count(paths.TASKS_EVAL / "deepcodebench_test.jsonl"),
-                       "sweqa": _count(paths.TASKS_EVAL / "sweqa.jsonl"), "fast": n_fast},
+                       "sweqa": _count(paths.TASKS_EVAL / "sweqa.jsonl"),
+                       "codeqabench": _count(paths.TASKS_EVAL / "codeqabench.jsonl"), "fast": n_fast},
               "window": [lo, hi], "per_repo_cap": per_repo_cap, "train_all": n_all}
     REPORTS.mkdir(parents=True, exist_ok=True)
     (REPORTS / "split.json").write_text(json.dumps(counts, indent=2))
@@ -165,6 +166,7 @@ def readme(c: dict[str, Any]) -> str:
               f"{c['unmeasured']} tasks unmeasured{' (kept)' if c['kept_unmeasured'] else ' (held out of train)'}; {c['deduped']} near-duplicates dropped.", "",
               "## eval/", "", f"- `deepcodebench_test.jsonl`: {c['eval']['deepcodebench_test']} (held-out, same 8 repos as train)",
               f"- `sweqa.jsonl`: {c['eval']['sweqa']} (15 repos never trained on)",
+              f"- `codeqabench.jsonl`: {c['eval'].get('codeqabench', 0)} (Code-QA-Bench, 10 repos, rubric + key files; our snapshots keep docs = the paper's 'documented' condition)",
               f"- `fast.jsonl`: {c['eval']['fast']} (60 + 60 stratified by repo; the every-N-steps eval)", "",
               "Reports with resolution rates, yields, pass-rate summaries: `reports/`."]
     return "\n".join(lines) + "\n"

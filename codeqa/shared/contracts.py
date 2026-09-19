@@ -92,7 +92,7 @@ class IndexSymbol(BaseModel):
 # ---------------------------------------------------------------------------
 
 TaskType = Literal["locate", "value", "enumerate", "trace", "explain"]
-TaskSource = Literal["deepcodebench", "codescout", "structural", "teacher", "sweqa", "sweqa_pro"]
+TaskSource = Literal["deepcodebench", "codescout", "structural", "teacher", "sweqa", "sweqa_pro", "codeqabench"]
 Split = Literal["train", "eval"]
 
 
@@ -261,6 +261,7 @@ class EndpointProfile(BaseModel):
     max_context: int = 65536
     max_generation_tokens: int = 2048
     thinking: bool = True
+    variant: str | None = None          # agent variant this profile is trained for / served with (agent/variants.py); None = the default
 
 
 # ---------------------------------------------------------------------------

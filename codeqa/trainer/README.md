@@ -28,9 +28,12 @@ uv run python -u -m codeqa.trainer.run --tasks data/tasks/eval/smoke_sweqa_flask
 4. Grounded-citation credit (lead, 2026-09-19): an answer that passes every gate but scores 0 gets a floor of +0.05
    (`group_rewards.grounded_credit`, `--grounded-credit`, 0 disables). Ladder: stall −0.1 < no citations 0 < grounded-but-wrong 0.05 < correct.
    The held-out evaluator reports the unshaped reward (`eval/fast/env/all/reward`); `env/all/reward_shaped` is what trains.
-5. Judge failures: the grader returns NaN; here they become 0 + mean(healthy siblings), so their advantage is exactly 0. A group
+5. Length shaping (lead, 2026-09-19 night): the trained reward is `(grader reward + grounded credit) × length_factor + stall penalty`,
+   where `length_factor = min(1, cap / answer tokens)` (floor 0.1). The grader and every eval are length-free (`length_shaping=False`
+   in the held-out evaluator); `env/all/length_factor_applied` logs the multiplier.
+6. Judge failures: the grader returns NaN; here they become 0 + mean(healthy siblings), so their advantage is exactly 0. A group
    where every sample failed is constant and dropped by `remove_constant_reward_groups`.
-6. Every grader metric is attached per trajectory; the cookbook means them into `env/all/<key>`, `env/<source>/<key>`,
+7. Every grader metric is attached per trajectory; the cookbook means them into `env/all/<key>`, `env/<source>/<key>`,
    `env/<task_type>/<key>`. Group metrics (`group_reward_std`, `unique_tool_sequences_per_group`, `judge_error_rate`) ride along.
 
 ## Metric keys in metrics.jsonl
@@ -66,6 +69,15 @@ uv run python -u -m codeqa.trainer.run --tasks data/tasks/train/run1_verifiable.
     --variant multiplicative --load-checkpoint tinker://<run1>/weights/<step> --lr 1e-4 --group-size 8 --groups-per-batch 16 \
     --steps 50 --eval-tasks data/tasks/eval/fast.jsonl --eval-every 10 --save-every 10
 ```
+
+## Loss and optimizer metrics
+
+Tinker computes the loss server-side and returns only per-token training logprobs, so the cookbook logs no loss.
+`codeqa/trainer/metrics_patch.py` (installed by `run.py`) adds per step: `optim/loss` (importance-sampling policy-gradient
+surrogate, `-mean(ratio × advantage)`; near 0 by construction because advantages are group-centered, so read its drift, not its
+level), `optim/loss_abs` (learning-signal magnitude), `optim/advantage_std`, `optim/frac_tokens_with_advantage`,
+`optim/importance_ratio_mean|max`, `optim/clip_fraction` (|ratio − 1| > 0.2), `optim/nll`, `optim/action_tokens`.
+The monitor's optimizer table and `plots/optimizer.png` show them. Runs launched before 2026-09-20 (run one) do not have them.
 
 ## Monitoring
 

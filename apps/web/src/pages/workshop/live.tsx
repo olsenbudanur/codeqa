@@ -139,7 +139,7 @@ export function LivePage({ requested }: { requested: string | null }) {
           <Panel title="Reward" aside={`step ${last.step} of ${run.steps}, ${run.config.group_size ?? '?'} × ${run.config.groups_per_batch ?? '?'} per step`}>
             <MetricChart
               data={rows}
-              height={260}
+              height={320}
               yDomain={[0, 'auto']}
               series={[
                 { key: 'reward_band', label: '±1 s.e.', color: SERIES[0], kind: 'band' },

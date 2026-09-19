@@ -47,3 +47,11 @@ Errors are forgiving on purpose: nearest paths on a miss, first chunk on an over
 Fixed (contracts): tool names and output formats, the citation regex, the message roles. Tunable (config): caps, budgets per task type, the map token limit, the exact rules wording, thinking on/off via the endpoint profile.
 
 Design rationale and precedents: `docs/agent_design.md`.
+
+## Context variants (2026-09-19)
+
+`variants.py` decides which tools and which repo map an episode gets. The default is **lean**: `find_symbol`, `grep`,
+`read_file`, `list_dir` and a ~1k-token structural tree map built from the manifest and symbol index, so a new repo needs
+no Haiku pass. `full` restores the five-tool design with `overview` and the summarised 3k map for ablations
+(`CODEQA_AGENT_VARIANT=full`, requires `summaries.json` + `map.txt`; index with `cli all --summaries`). Rewards are
+unchanged across variants.

@@ -65,3 +65,15 @@ def test_deepcodebench_review_fixes_apply_at_import():
     assert "2024.12.1" in t.grading.reference_answer and t.grading.rubric == ["corresponds to ≥ 2024.12.1"]
     row = dict(DCB_ROW, id="d806e6bd-9e8a-4759-8b83-01fdfdfba005", question="What are the two distinct error conditions checked?")
     assert dcb.to_task(row).task_type == "explain"          # heuristic would say enumerate
+
+
+def test_codeqabench_maps_fields_one_to_one():
+    from codeqa.datagen.sources import import_codeqabench as cqb
+    repos = {"django": {"url": "https://github.com/django/django", "ref": "856c915326768962806705ca7733e4abbb8f794f"}}
+    row = {"id": "django_gen_01", "repo": "django", "category": "how", "question": "How does  Polygon support ring mutation?",
+           "gold_answer": "Via ListMixin...", "rubric": ["Identifies ListMixin", " Notes _minlength = 1 "], "key_files": ["django/contrib/gis/geos/polygon.py"]}
+    t = cqb.to_task(row, repos)
+    assert t.task_id == "cqb-django_gen_01" and t.repo_id == "django__django__856c915" and t.split == "eval" and t.source == "codeqabench"
+    assert t.task_type == "trace" and t.question == "How does Polygon support ring mutation?"
+    assert t.grading.rubric == ["Identifies ListMixin", "Notes _minlength = 1"] and t.grading.expected_paths == ["django/contrib/gis/geos/polygon.py"]
+    assert cqb.task_type_of("where") == "explain"

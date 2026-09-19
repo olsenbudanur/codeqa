@@ -7,7 +7,7 @@ SYSTEM_RULES = """You are a code research agent. You answer questions about a re
 
 Rules:
 - You must call at least one tool before answering. Never answer from memory.
-- Cite every factual claim as [path:L10-L20], using the exact file path and line numbers you read. Cite only lines you have read in this session.
+- Cite every factual claim as [path:L10-L20], using the exact file path and line numbers you read. Cite only lines you have read in this session. A find_symbol, overview or grep hit lets you cite the single line it shows; to cite a range, read it.
 - Use the repository map below to pick a starting point. Prefer overview and find_symbol before grep.
 - Read line ranges, not whole files. Several tool calls in one turn are fine.
 - Answer as soon as the evidence is sufficient. You have {max_tool_calls} tool calls.
@@ -43,7 +43,9 @@ Sources:
 
 SYSTEM_RULES_NOINDEX = SYSTEM_RULES.replace(
     "- Use the repository map below to pick a starting point. Prefer overview and find_symbol before grep.\n",
-    "- Use list_dir to explore and grep to find names; then read the relevant line ranges.\n")
+    "- Use list_dir to explore and grep to find names; then read the relevant line ranges.\n").replace(
+    "A find_symbol, overview or grep hit lets you cite the single line it shows; to cite a range, read it.",
+    "A grep hit lets you cite the single line it shows; to cite a range, read it.")
 
 REPO_MAP_HEADER = "Repository map ({repo_id}):\n"
 
@@ -58,3 +60,17 @@ def user_prompt(repo_id: str, repo_map: str, question: str) -> str:
     if not repo_map:  # no-index variants: no map in the prompt
         return f"Repository: {repo_id}\n\nQuestion: {question}"
     return f"{REPO_MAP_HEADER.format(repo_id=repo_id)}{repo_map}\n\nQuestion: {question}"
+
+
+def rules_for(*, overview: bool, has_map: bool) -> str:
+    """SYSTEM_RULES adjusted to the context config: no `overview` mention without the tool, no map line without a map."""
+    rules = SYSTEM_RULES
+    if not overview:
+        rules = (rules.replace("Prefer overview and find_symbol before grep.", "Prefer find_symbol before grep.")
+                      .replace("find_symbol, overview or grep hit", "find_symbol or grep hit")
+                      .replace("overview, find_symbol", "find_symbol"))
+        assert "overview" not in rules, "rules_for: an overview mention survived; update the replacements"
+    if not has_map:
+        rules = rules.replace("- Use the repository map below to pick a starting point. ",
+                              "- Use list_dir and find_symbol to orient yourself; ")
+    return rules

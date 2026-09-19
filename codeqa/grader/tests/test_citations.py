@@ -35,3 +35,11 @@ def test_normalizes_dot_slash_paths(repo):
 def test_read_lines_union():
     cov = read_lines_by_path([Span(path="a", start=1, end=3), Span(path="a", start=3, end=5)])
     assert cov["a"] == {1, 2, 3, 4, 5}
+
+
+def test_unique_basename_resolves(repo):
+    assert repo.normalize("session.py") == S
+    assert repo.normalize("auth/session.py") == S
+    assert repo.normalize("__init__.py") == "__init__.py"          # ambiguous: left alone (and will not exist)
+    r = check_citations("[session.py:L35-L42]", [Span(path=S, start=35, end=42)], repo.repo_id, repo=repo)
+    assert r.all_exist and r.all_grounded

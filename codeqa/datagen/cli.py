@@ -16,10 +16,11 @@ from codeqa.shared import paths
 
 def cmd_import(args: argparse.Namespace) -> int:
     from codeqa.datagen import importers
-    sources = ["deepcodebench", "sweqa"] if args.source == "all" else [args.source]
+    sources = ["deepcodebench", "sweqa", "codeqabench"] if args.source == "all" else [args.source]
+    fns = {"deepcodebench": importers.import_deepcodebench, "sweqa": importers.import_sweqa, "codeqabench": importers.import_codeqabench}
     for s in sources:
         print(f"== import {s}", flush=True)
-        rep = importers.import_deepcodebench() if s == "deepcodebench" else importers.import_sweqa()
+        rep = fns[s]()
         print(json.dumps({k: v for k, v in rep.items() if k not in ("per_repo",)}, indent=1), flush=True)
     return 0
 
@@ -68,7 +69,7 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="codeqa.datagen")
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("import", help="import DeepCodeBench / SWE-QA into C5 files")
-    p.add_argument("--source", choices=["deepcodebench", "sweqa", "all"], default="all")
+    p.add_argument("--source", choices=["deepcodebench", "sweqa", "codeqabench", "all"], default="all")
     p.set_defaults(fn=cmd_import)
     p = sub.add_parser("derive", help="derive CodeScout locate tasks (snapshot repos, resolve gold, Haiku rewrite)")
     p.add_argument("--source", choices=["codescout"], default="codescout")

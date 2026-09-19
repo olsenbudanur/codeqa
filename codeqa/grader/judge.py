@@ -1,6 +1,6 @@
 """LLM judge for judged task types (trace|explain): rubric mode and reference mode. Haiku by default.
 
-Defenses (gap_specs §3): the answer is truncated to the task's answer cap, markdown-stripped, wrapped in
+Defenses (gap_specs §3): the answer is truncated at 3x the task's answer cap (min 2,000 tokens; length is shaped in training, not here), markdown-stripped, wrapped in
 delimiters, and declared untrusted. Items are atomic yes/no so length buys nothing. Three retries with
 backoff, then NaN (the trainer maps NaN to the group mean; see trainer/dataset_builder.py).
 """
@@ -105,10 +105,14 @@ def truncate_tokens(text: str, max_tokens: int) -> str:
     return " ".join(words[:lo])
 
 
+JUDGE_WINDOW_MULT = 3        # the judge reads up to 3x the answer cap (min 2,000 tokens); length is shaped in training, not by hiding text
+JUDGE_WINDOW_MIN = 2000
+
+
 def prepare_answer(answer: str, max_answer_tokens: int) -> str:
     text = strip_markdown(answer)
     text = text.replace("<<<ANSWER", "<<ANSWER").replace("ANSWER>>>", "ANSWER>>")   # cannot close our own marker
-    return truncate_tokens(text, max_answer_tokens)
+    return truncate_tokens(text, max(JUDGE_WINDOW_MIN, JUDGE_WINDOW_MULT * max_answer_tokens))
 
 
 def build_messages(question: str, answer: str, rubric: list[str], reference: str | None, max_answer_tokens: int) -> list[Message]:

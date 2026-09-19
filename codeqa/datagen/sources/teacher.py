@@ -14,7 +14,7 @@ from typing import Any
 from tinker_cookbook.tool_use.types import ToolInput
 
 from codeqa.agent.curation import DEFAULT_CAPS
-from codeqa.agent.indexing.repomap import load_map
+from codeqa.agent.variants import repo_map_text, resolve
 from codeqa.agent.prompts import user_prompt
 from codeqa.agent.tools import RepoTools
 from codeqa.clients.base import ModelClient
@@ -118,10 +118,11 @@ def parse_authored(text: str) -> dict[str, Any] | None:
 async def author(client: ModelClient, repo_id: str, seed_path: str, seed_symbols: list[str],
                  max_tool_calls: int = AUTHOR_TOOL_CALLS, max_turns: int = AUTHOR_TURNS) -> tuple[AuthoredTask | None, str]:
     """One authoring episode. Returns (task, reason) where reason is 'ok' or why it was rejected."""
+    variant = resolve(None)                                  # same switch as RepoEnv: lean by default
     tools_obj = RepoTools(repo_id, max_tool_calls=max_tool_calls, caps=DEFAULT_CAPS)
-    tools = {t.name: t for t in tools_obj.tools()}
-    specs = tools_obj.specs()
-    repo_map = load_map(repo_id)
+    tools = {t.name: t for t in tools_obj.tools(variant.tools)}
+    specs = tools_obj.specs(variant.tools)
+    repo_map = repo_map_text(repo_id, variant)
     messages = [Message(role="system", content=AUTHOR_SYSTEM),
                 Message(role="user", content=user_prompt(repo_id, repo_map, seed_prompt(seed_path, seed_symbols)))]
     ptoks = ctoks = 0

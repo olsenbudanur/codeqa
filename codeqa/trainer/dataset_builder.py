@@ -19,6 +19,7 @@ import chz
 from tinker_cookbook.rl.types import Env, EnvGroupBuilder, Metrics, RLDataset, RLDatasetBuilder, Trajectory
 
 from codeqa.agent.env import RepoEnv
+from codeqa.grader import gates
 from codeqa.grader.grade import grade, metrics as grade_metrics
 from codeqa.grader.judge import JudgeClient, default_client
 from codeqa.shared import paths
@@ -59,9 +60,11 @@ class CodeQAGroupBuilder(EnvGroupBuilder):
     """Holds only strings and numbers so it stays pickleable; RepoEnvs are built in make_envs."""
 
     def __init__(self, task: Task, profile_name: str, group_size: int, variant: str = "none",
-                 judge_model: str | None = None, offline_judge: bool = False, grounded_credit: float = 0.05):
+                 judge_model: str | None = None, offline_judge: bool = False, grounded_credit: float = 0.05,
+                 length_shaping: bool = True):
         self.task = task
         self.grounded_credit = grounded_credit
+        self.length_shaping = length_shaping
         self.profile_name = profile_name
         self.group_size = group_size
         self.variant = variant
@@ -108,15 +111,19 @@ class CodeQAGroupBuilder(EnvGroupBuilder):
         results = await asyncio.gather(*(self._grade(t) for t in traces))
         penalties = [no_answer_penalty(t.stats.stop_reason, r.gate_failed) for t, r in zip(traces, results)]
         credits = [0.0 if math.isnan(r.reward) else grounded_credit(r.reward, r.gate_failed, self.grounded_credit) for r in results]
-        rewards = [nan_safe(r.reward) + p + c for r, p, c in zip(results, penalties, credits)]
+        budget = self.task.effective_budget()
+        lengths = [gates.length_factor(gates.extract_answer(t), budget) if self.length_shaping else 1.0 for t in traces]
+        # shaped = (grader reward + grounded credit) x length factor + stall penalty; the grader's reward stays length-free
+        rewards = [(nan_safe(r.reward) + c) * lf + p for r, p, c, lf in zip(results, penalties, credits, lengths)]
         errored = [math.isnan(r.reward) for r in results]
         _, totals = fill_judge_errors(rewards, errored)
         gm = group_metrics(totals, errored, [tool_sequence(t) for t in traces])
         out: list[tuple[float, Metrics]] = []
-        for total, r, t, p, c in zip(totals, results, traces, penalties, credits):
+        for total, r, t, p, c, lf in zip(totals, results, traces, penalties, credits, lengths):
             m = grade_metrics(r, t, self.task)          # m["reward"] stays the grader's reward; the shaped total is separate
             m["no_answer_penalty"] = float(p != 0.0)
             m["grounded_credit"] = float(c != 0.0)
+            m["length_factor_applied"] = lf
             m["reward_shaped"] = total
             m.update(gm)
             out.append((total, m))
@@ -144,24 +151,28 @@ class CodeQADataset(RLDataset):
 
 
 def load_tasks(path: Path, max_tasks: int | None = None, seed: int = 0, shuffle: bool = True) -> list[Task]:
-    """Tasks whose repo has a map.txt (RepoEnv needs it). Others are skipped with a log line."""
+    """Tasks whose repo is indexed for the active agent variant: symbols.json always, map.txt only when the variant's
+    map is `full` (the lean default builds its tree map from the manifest + symbols). Others are skipped with a log line."""
+    from codeqa.agent.variants import resolve as resolve_variant
+    need_full_map = resolve_variant(None).map == "full"
     tasks = read_all(path, Task)
     ok, skipped = [], {}
     for t in tasks:
-        if (paths.index_dir(t.repo_id) / "map.txt").is_file():
+        idx = paths.index_dir(t.repo_id)
+        if (idx / "symbols.json").is_file() and (not need_full_map or (idx / "map.txt").is_file()):
             ok.append(t)
         else:
             skipped[t.repo_id] = skipped.get(t.repo_id, 0) + 1
     if skipped:
-        logger.warning("skipping %d tasks without map.txt: %s", sum(skipped.values()), skipped)
+        logger.warning("skipping %d tasks whose repo is not indexed for this variant: %s", sum(skipped.values()), skipped)
     if shuffle:
         random.Random(seed).shuffle(ok)
     return ok[:max_tasks] if max_tasks else ok
 
 
 def builders_for(tasks: list[Task], profile_name: str, group_size: int, variant: str, judge_model: str | None,
-                 offline_judge: bool = False, grounded_credit: float = 0.05) -> list[EnvGroupBuilder]:
-    return [CodeQAGroupBuilder(t, profile_name, group_size, variant, judge_model, offline_judge, grounded_credit) for t in tasks]
+                 offline_judge: bool = False, grounded_credit: float = 0.05, length_shaping: bool = True) -> list[EnvGroupBuilder]:
+    return [CodeQAGroupBuilder(t, profile_name, group_size, variant, judge_model, offline_judge, grounded_credit, length_shaping) for t in tasks]
 
 
 @chz.chz
@@ -177,12 +188,13 @@ class CodeQADatasetBuilder(RLDatasetBuilder):
     seed: int = 0
     epochs: int = 1
     grounded_credit: float = 0.05        # 0 disables the shaping floor for gate-passing wrong answers
+    length_shaping: bool = True          # multiply the trained reward by min(1, cap / answer tokens); evals never do
 
     async def __call__(self) -> tuple[RLDataset, RLDataset | None]:
         tasks = load_tasks(Path(self.tasks_path), self.max_tasks, self.seed)
         if not tasks:
             raise RuntimeError(f"no usable tasks in {self.tasks_path}")
-        builders = builders_for(tasks, self.profile_name, self.group_size, self.variant, self.judge_model, self.offline_judge, self.grounded_credit)
+        builders = builders_for(tasks, self.profile_name, self.group_size, self.variant, self.judge_model, self.offline_judge, self.grounded_credit, self.length_shaping)
         ds = CodeQADataset(builders, self.groups_per_batch, self.epochs)
         logger.info("dataset: %d tasks -> %d batches of up to %d groups x %d (%d epochs)", len(tasks), len(ds),
                     self.groups_per_batch, self.group_size, self.epochs)

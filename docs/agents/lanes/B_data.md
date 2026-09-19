@@ -57,6 +57,7 @@ Format: `- [YYYY-MM-DD HH:MM] B<n> done — one line with counts/paths`
 - [2026-09-18 23:20] B6 done — base pass rate measured for all 3,494 raw tasks (2 samples each, +2 on every task at a two-sample 0 or 1: 2,482 tasks have n=4); `reports/passrate.jsonl`, summary in `reports/passrate_summary.json`. Window [0.1, 0.9] on the difficulty score keeps 1,515; per-repo cap 120 (sqlglot only) -> `train/all.jsonl` = 1,489 over 23 repos, 62% programmatic; 691 hard + 1,288 easy in `raw/reserve_*.jsonl`; `eval/fast.jsonl` = 60 DeepCodeBench test + 60 SWE-QA (seed 7). Counts table in `data/tasks/README.md`.
 - [2026-09-18 23:20] B7 done — handoff in LOG (23:20 entry). Lane B spend after the top-up: ~$27 of the $50 allowance.
 - [2026-09-19 01:20] eval validation — Sonnet 5 + Opus 5 on the fast set: 3 tasks removed (wrong or stale gold, vague question), 6 repaired, replacements deterministic; eval sizes 230 / 719 / 120. Frontier content correctness ~0.83 (Sonnet), gated reward 0.44 because of the 800-token cap. Recommendation to make length proportional is in LOG 01:20. Lane B spend ~$46 of $50.
+- [2026-09-19 03:20] extra — Code-QA-Bench imported: `eval/codeqabench.jsonl` 528 tasks, 10 repos, documented condition; lean agent context is now the default for every caller (LOG 02:20/02:45); pass rates still measured under `full`, re-measure before run one.
 
 ## Open questions for the lead
 - ~~Anthropic credits exhausted (18:35)~~ restored ~19:10 with $100; lane B holds itself to $50 of it.
