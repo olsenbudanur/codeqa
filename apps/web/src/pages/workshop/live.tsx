@@ -9,6 +9,7 @@ import { MetricChart, SERIES } from '@/components/workshop/charts'
 import { Chip, ErrorNote, Loading, Panel, Stat } from '@/components/workshop/ui'
 import { OptimizerPanel, plateau, withDerived } from './runs'
 import { GateFunnelPanel, HeldOutPanel, SignalDensityPanel } from '@/components/workshop/panels'
+import { LiveBoard } from '@/components/workshop/live-board'
 
 const POLL_MS = 10_000
 
@@ -116,13 +117,16 @@ export function LivePage({ requested }: { requested: string | null }) {
           {run?.live ? <Chip tone="good">training</Chip> : run ? <Chip>idle since {fmtWhen(run.updated)}</Chip> : null}
         </h1>
         <Select value={name ?? ''} onValueChange={(v) => { setName(v); navigate(`/workshop/live?run=${encodeURIComponent(v)}`) }}>
-          <SelectTrigger className="h-8 w-[200px]" aria-label="Run">
-            <SelectValue>{name ?? 'pick a run'}</SelectValue>
+          <SelectTrigger className="h-8 max-w-[420px]" aria-label="Run">
+            <SelectValue>{runs.find((r) => r.name === name)?.title ?? name ?? 'pick a run'}</SelectValue>
           </SelectTrigger>
           <SelectContent>
             {runs.map((r) => (
               <SelectItem key={r.name} value={r.name}>
-                {r.live ? '● ' : ''}{r.name}
+                <span className="flex flex-col">
+                  <span>{r.live ? '● ' : ''}{r.title}</span>
+                  <span className="font-mono text-[11px] text-muted-foreground">{r.name}</span>
+                </span>
               </SelectItem>
             ))}
           </SelectContent>
@@ -133,10 +137,13 @@ export function LivePage({ requested }: { requested: string | null }) {
       </div>
 
       {error && <ErrorNote error={error} />}
+      <div className="mb-3">
+        <LiveBoard runs={runs} selected={name} onSelect={(n) => { setName(n); navigate(`/workshop/live?run=${encodeURIComponent(n)}`) }} pollMs={POLL_MS} />
+      </div>
       {!run && !error && <Loading what="run" />}
       {run && last && (
         <div className="grid gap-3 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
-          <Panel title="Reward" aside={`step ${last.step} of ${run.steps}, ${run.config.group_size ?? '?'} × ${run.config.groups_per_batch ?? '?'} per step`}>
+          <Panel title={run.title ?? run.name} aside={`step ${last.step}${run.planned_steps ? ` of ${run.planned_steps}` : ''}, ${run.config.group_size ?? '?'} × ${run.config.groups_per_batch ?? '?'} per step`}>
             <MetricChart
               data={rows}
               height={320}

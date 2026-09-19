@@ -40,6 +40,7 @@ def data(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     _w(paths.TASKS / "reports" / "passrate.jsonl", json.dumps({"task_id": "t-1", "source": "structural", "task_type": "locate", "n": 4, "n_answered": 3,
                                                                "answered": 0.75, "format_ok": 0.5, "found": 1.0, "correct_lenient": 0.5, "reward": 0.25, "tool_calls": 3.0}) + "\n")
     # run: 3 steps, one iteration with one rollout
+    _w(paths.LOGS / "runs.json", json.dumps({RUN: {"title": "Unit · tiny run", "hypothesis": "does the API read titles", "variant": "full", "steps": 3}}))
     _w(paths.LOGS / RUN / "config.json", json.dumps({"learning_rate": 1e-4, "model_name": "Qwen/Qwen3.5-4B",
                                                      "dataset_builder": {"group_size": 4, "groups_per_batch": 2, "tasks_path": "x", "profile_name": "qwen4b-base"}}))
     _w(paths.LOGS / RUN / "metrics.jsonl", "".join(json.dumps({"step": i, "env/all/reward/total": 0.1 * i, "env/all/group_reward_std": 0.2,
@@ -83,6 +84,7 @@ def client(data: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
 def test_runs(client: TestClient) -> None:
     runs = client.get("/runs").json()
     assert [r["name"] for r in runs] == [RUN] and runs[0]["steps"] == 3 and runs[0]["config"]["group_size"] == 4
+    assert runs[0]["title"] == "Unit · tiny run" and runs[0]["planned_steps"] == 3 and runs[0]["hypothesis"].startswith("does")
     run = client.get(f"/runs/{RUN}").json()
     assert [m["env/all/reward/total"] for m in run["metrics"]] == [0.0, 0.1, 0.2]
     assert "time/total" in run["metrics"][0] and "time/policy_sample:mean" not in run["metrics"][0]
@@ -154,3 +156,28 @@ def test_repo_overview_and_tool_console(client: TestClient) -> None:
     assert bad["error"] is True
     assert client.post(f"/repos/{REPO}/tool", json={"name": "rm", "args": {}}).status_code == 400
     assert client.get("/repos/x__y__0000000/overview").status_code == 404
+
+
+def test_live_means_rows_keep_arriving(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    import time as _t
+    import apps.api.workshop as ws
+    ws._growth.clear()
+    (paths.LOGS / "runs.json").write_text(json.dumps({RUN: {"title": "t", "steps": 10}}))
+    ws._cache.clear()
+    p = paths.LOGS / RUN / "metrics.jsonl"
+    # fresh mtime on first sight: live
+    assert client.get("/runs").json()[0]["live"] is True
+    # a sync that rewrites the file without new rows must not keep it live once the window has passed
+    ws._growth[RUN] = (3, _t.time() - ws.LIVE_SECONDS - 1)
+    p.write_text(p.read_text())
+    ws._cache.clear()
+    assert client.get("/runs").json()[0]["live"] is False
+    # a new row arrives: live again
+    p.write_text(p.read_text() + json.dumps({"step": 3, "env/all/reward/total": 0.3}) + "\n")
+    ws._cache.clear()
+    assert client.get("/runs").json()[0]["live"] is True
+    # planned steps reached: finished
+    ws._growth[RUN] = (4, _t.time())
+    (paths.LOGS / "runs.json").write_text(json.dumps({RUN: {"title": "t", "steps": 4}}))
+    ws._cache.clear()
+    assert client.get("/runs").json()[0]["live"] is False

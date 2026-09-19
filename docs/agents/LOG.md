@@ -684,3 +684,36 @@ Entry format:
 - Judge window: the judge used to see the answer truncated at `max_answer_tokens`; with length no longer a gate that silently hid the tail of long answers. Now 3× the cap (min 2,000 tokens). Opus on the hard set: mean correctness 0.91 → 0.92, full-1.0 61 % → 63 %.
 - Verbatim-paste gate: needs ≥ 8 pasted lines and counts every line ≥ 8 chars in the denominator, so quoting a short code snippet no longer trips it. 87 lane tests pass.
 - Affects: grader (run two), evals
+
+## 2026-09-19 05:30 · experiments · lead — PHASE 1 (shape) launched on Modal
+- What: four arms in parallel as detached jobs (`scripts/arm.py` inside the runner), each: 128 episodes/step, lr 1e-4, group 8 × 16, seed 0 (identical batches), `run1.jsonl`, held-out `fast.jsonl` in-loop every 10 steps, then the same 120 tasks at T=0.2 under the common grader as set `fast_t02`. Runs: `p1_full` (five tools + summarised map, 30 steps), `p1_lean` (four tools + 1k tree map, 30), `p1_bash` (shell tool on Modal sandboxes + tree map, 30), `p1_nogates` (full agent, cited-file-exists and lines-read gates OFF via `CODEQA_HONESTY_GATES=off`, 10 steps; its in-loop eval is ungated, its `fast_t02` eval is gated). Checkpoints register as `qwen4b-p1_<arm>-step<N>` with `variant` set.
+- Protocol: read the chain full → lean → bash (one change each); decide on held-out correctness at T=0.2 and tokens per correct answer, noise band ±4 points; run one is a replicate of `p1_full`'s first 10 steps (noise estimate). Nobody launches anything else on Tinker until these finish (~3–4 h; sampling is shared).
+- Grader: `codeqa/grader/grade.py` gained `honesty_gates()` (env `CODEQA_HONESTY_GATES`, default on); with it off, the adversarial fixture tests fail by design (fabrication is measured, not gated). C: keep it.
+- Affects: C (grader switch), D (four new profiles will appear in `profiles.modal.yaml` after `modal_sync.sh`), everyone (Tinker busy)
+
+## 2026-09-19 05:50 · workshop · lead (for D)
+- What: the four phase-1 runs are `p1_full`, `p1_lean`, `p1_bash`, `p1_nogates` under `data/logs/` (synced from the Modal volume every 2 min by the lead's loop, so the Runs page is near-live). Readable titles + hypotheses for every run are in `data/logs/runs.json` (`{run: {title, hypothesis, variant, steps, reward}}`); please read it in `GET /runs` and show `title` in the list and chart legend, falling back to the directory name. Overlay: the lead wants all four on one reward chart, so lift the two-run limit to N (four here). Also useful on the run page: the in-loop held-out points (`eval/fast/env/all/reward`) as markers at steps 0/10/20/30.
+- Affects: D
+
+## 2026-09-20 02:40 · apps/web, apps/api · product agent — watching the phase-1 runs live (answers lane C's request)
+- What: `GET /runs` reads `data/logs/runs.json` (`title`, `hypothesis`, `variant`, `planned_steps`, `reward_setting`); titles show in the runs list, run page header, Live picker and cards; dir names stay as the mono subline and chart legend keys. Overlay on the run page is now N runs (`?vs=a,b,c`, toggle chips); Live page has a board when ≥ 2 runs are live: all of them on one reward chart with held-out points, one card each (title, steps / planned with a progress bar, last reward, warning count, last sync), click to monitor below.
+- Liveness: no longer mtime-based. The 2-min `modal volume get` rewrites every file it pulls, so mtime says "live" for finished runs; the API now marks a run live only while new metric rows keep arriving (window 330 s = one sync + one commit + slack) and never once `steps ≥ planned_steps`. First sight in a fresh API process trusts a recent mtime once.
+- Affects: lead / C (run one shows 12/11: planned_steps in runs.json says 11), nothing else
+
+## 2026-09-19 06:10 · experiments · lead — phase 1 relaunch: filtered data
+- What: the 05:30 launch failed at startup (the arm module used laptop-relative task paths inside the container; fixed to resolve via `codeqa.shared.paths`). Relaunching on lane B's **`train/all.jsonl` (1,489 tasks, pass-rate window, 62 % gold-graded, 38 % rubric-judged)** instead of `run1.jsonl`, so the arms train on the designed set and see explain data; Haiku judge in the loop (~50 calls/step/arm). Run one (unfiltered, verifiable-only) is no longer a replicate of `p1_full`; it stays as the "before the filter" reference.
+- Affects: C (judge in the loop again), B (your set is in use), D (same run names)
+
+## 2026-09-20 02:10 · grader/agent · lane C agent — grounding is a multiplier; find_symbol ranges are shown (decisions "2026-09-20 early")
+- What: `grade.py` (integrated with the lead's `honesty_gates()` switch): `citations_grounded` is now `citations.grounded_fraction` (mean share of cited lines shown, ±1) and multiplies the reward; `grounding` gate only when the fraction is 0. `agent/tools.py::find_symbol` records the full displayed range (was signature line only); lane A's `test_find_symbol_and_overview_register_signature_lines_only` updated accordingly. 126 tests pass across grader/trainer/evals/agent.
+- Also this session: judge window 3× cap (min 2,000 tokens); verbatim gate needs ≥ 8 pasted lines. See LOG 01:20.
+- Opus on Sonnet's 75 hard tasks: reached grading 88 % → 96 %, correct 88 % → 96 %, reward 0.81 → 0.86, mean grounded 0.98. Sonnet fast re-grade running.
+- Ask (lane A / lead): a final forced-answer turn when the tool budget is exhausted (driver and cookbook env), so stalls stop counting as "no answer" for frontier and trained models alike. Run one is unaffected by any of this (in flight with the earlier grader); run two picks it all up.
+- Affects: lead (run two), lane A (env ask), D (badges: `citations_grounded` is fractional now)
+
+## 2026-09-20 02:40 · data · lane C agent — rubric pruning complete; Anthropic credit dry again
+- Pruned (rule: keep an item iff a frontier answer states it; Sonnet on all 644 judged train tasks + the 232 DeepCodeBench test tasks, Opus where available; backups in `data/tasks/backup/`, report `data/tasks/reports/rubric_prune.json`):
+  `train/all.jsonl` 377/4,073 items (9 %), `train/deepcodebench.jsonl` 276/3,185, `train/teacher.jsonl` 93/888, `train/run1.jsonl` 33/933, `eval/fast.jsonl` 15/353, `eval/deepcodebench_test.jsonl` 111/1,507 (7 %). Tasks without an answered frontier trace (35 in all.jsonl) and tasks that would drop below 2 items (29) are untouched.
+  Sonnet on the 644 judged train tasks (pre-prune grader): reward 0.76, correct 85 %; on the 232 DeepCodeBench test tasks: reward 0.73, correct 80 % (`data/evals/claude/{train_judged,dcb_test}/`).
+- **Credit balance is dry again** (judge 400 "credit balance is too low", first seen 02:10). Casualties: the Sonnet fast re-grade under the new grounding rule has 39/117 judge NaNs and must be re-run after a top-up; nothing else was mid-flight. Run one is unaffected (verifiable tasks, no judge). Run two on `all.jsonl` needs the judge, so top up before launching it.
+- Affects: lead (top-up; run two from the pruned files), B, talk

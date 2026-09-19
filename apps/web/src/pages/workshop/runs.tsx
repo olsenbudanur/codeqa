@@ -32,7 +32,7 @@ const OPTIM_PREFIXES = ['optim/', 'kl_ref/', 'loss/']
 
 
 export function RunsPage({ name, params }: { name?: string; params: URLSearchParams }) {
-  return name ? <RunDetailPage name={name} overlay={params.get('vs') ?? ''} /> : <RunList />
+  return name ? <RunDetailPage name={name} overlay={(params.get('vs') ?? '').split(',').filter(Boolean)} /> : <RunList />
 }
 
 function RunList() {
@@ -63,12 +63,13 @@ function RunList() {
               {runs.map((r) => (
                 <tr key={r.name} className="cursor-pointer border-b last:border-0 hover:bg-accent/60" onClick={() => navigate(`/workshop/runs/${r.name}`)}>
                   <td className="px-4 py-2.5">
-                    <span className="flex items-center gap-2 font-mono text-[13px]">
+                    <span className="flex items-center gap-2 text-[13.5px]">
                       {r.live && <span className="size-1.5 animate-pulse rounded-full bg-verified" aria-label="Live" />}
-                      {r.name}
+                      {r.title}
                     </span>
+                    <span className="block font-mono text-[11px] text-muted-foreground">{r.name}{r.hypothesis ? ` · ${r.hypothesis}` : ''}</span>
                   </td>
-                  <td className="px-3 py-2.5 font-mono text-[13px] tabular-nums">{r.steps}</td>
+                  <td className="px-3 py-2.5 font-mono text-[13px] tabular-nums">{r.steps}{r.planned_steps ? <span className="text-muted-foreground"> / {r.planned_steps}</span> : null}</td>
                   <td className="px-3 py-2.5 font-mono text-[13px] tabular-nums">{fmtNum(r.last_reward, 3)}</td>
                   <td className="px-3 py-2.5 font-mono text-[13px]">{r.config.learning_rate?.toExponential(1) ?? '–'}</td>
                   <td className="px-3 py-2.5 font-mono text-[13px]">{r.config.group_size ?? '–'} × {r.config.groups_per_batch ?? '–'}</td>
@@ -126,29 +127,38 @@ export function plateau(rows: MetricRow[]) {
   return { gain, best, lastEval, lastN: last.length, prevN: prev.length }
 }
 
-function RunDetailPage({ name, overlay }: { name: string; overlay: string }) {
+function RunDetailPage({ name, overlay }: { name: string; overlay: string[] }) {
   const { run, error } = useRun(name)
   const [runs, setRuns] = useState<RunRow[]>([])
-  const [other, setOther] = useState<RunDetail | null>(null)
+  const [others, setOthers] = useState<RunDetail[]>([])
   const [toggles, setToggles] = useState<Record<string, boolean>>({})
   useEffect(() => {
     workshop.runs().then(setRuns).catch(() => {})
   }, [])
+  const overlayKey = overlay.join(',')
   useEffect(() => {
-    if (!overlay) {
-      setOther(null)
+    if (overlay.length === 0) {
+      setOthers([])
       return
     }
-    workshop.run(overlay).then(setOther).catch(() => setOther(null))
-  }, [overlay])
+    Promise.all(overlay.map((n) => workshop.run(n).catch(() => null))).then((rs) => setOthers(rs.filter((r): r is RunDetail => !!r)))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [overlayKey])
 
   const rows = useMemo(() => (run ? withDerived(run) : []), [run])
   const merged = useMemo(() => {
-    if (!other) return rows
-    const o = new Map(withDerived(other).map((m) => [m.step, m]))
-    const steps = new Set([...rows.map((m) => m.step), ...o.keys()])
-    return [...steps].sort((a, b) => a - b).map((step) => ({ ...(rows.find((m) => m.step === step) ?? { step }), other_reward: o.get(step)?.reward ?? null, other_smooth: o.get(step)?.reward_smooth ?? null }))
-  }, [rows, other])
+    if (others.length === 0) return rows
+    const maps = others.map((o) => new Map(withDerived(o).map((m) => [m.step, m])))
+    const steps = new Set([...rows.map((m) => m.step), ...maps.flatMap((m) => [...m.keys()])])
+    return [...steps].sort((a, b) => a - b).map((step) => {
+      const base: Record<string, unknown> = { ...(rows.find((m) => m.step === step) ?? { step }) }
+      others.forEach((_o, i) => {
+        base[`o${i}_reward`] = maps[i].get(step)?.reward ?? null
+        base[`o${i}_smooth`] = maps[i].get(step)?.reward_smooth ?? null
+      })
+      return base as MetricRow
+    })
+  }, [rows, others])
 
   const extraKeys = useMemo(() => {
     if (!run?.metrics.length) return [] as string[]
@@ -166,34 +176,45 @@ function RunDetailPage({ name, overlay }: { name: string; overlay: string }) {
     { key: 'reward', label: `${name} reward`, color: SERIES[0], kind: 'line' },
     { key: 'reward_smooth', label: '5-step mean', color: SERIES[0], kind: 'dashed' },
     { key: 'eval_reward', label: 'held-out (fast)', color: SERIES[2], kind: 'points' },
-    ...(other ? [{ key: 'other_reward', label: `${other.name} reward`, color: SERIES[1], kind: 'line' as const }, { key: 'other_smooth', label: `${other.name} 5-step mean`, color: SERIES[1], kind: 'dashed' as const }] : []),
-    ...extraKeys.filter((k) => toggles[k]).map((k, i) => ({ key: k, label: k.split('/')[1], color: SERIES[(3 + i) % SERIES.length], kind: 'dashed' as const })),
+    ...others.flatMap((o, i) => [
+      { key: `o${i}_reward`, label: `${o.name} reward`, color: SERIES[[1, 3, 4, 6, 7][i % 5]], kind: 'line' as const },
+      { key: `o${i}_smooth`, label: `${o.name} 5-step mean`, color: SERIES[[1, 3, 4, 6, 7][i % 5]], kind: 'dashed' as const },
+    ]),
+    ...extraKeys.filter((k) => toggles[k]).map((k, i) => ({ key: k, label: k.split('/')[1], color: SERIES[(5 + i) % SERIES.length], kind: 'dashed' as const })),
   ]
 
   return (
     <Page
       title={
-        <span className="flex items-center gap-2">
-          <span className="font-mono">{name}</span>
-          {run?.live && <Chip tone="good">live</Chip>}
+        <span className="flex flex-col">
+          <span className="flex items-center gap-2">
+            {run?.title ?? name}
+            {run?.live && <Chip tone="good">live</Chip>}
+          </span>
+          <span className="font-mono text-[11.5px] font-normal text-muted-foreground">{name}{run?.hypothesis ? ` · ${run.hypothesis}` : ''}</span>
         </span>
       }
       wide
       actions={
-        <>
-          <span className="text-xs text-muted-foreground">Overlay</span>
-          <Select value={overlay || 'none'} onValueChange={(v) => navigate(`/workshop/runs/${name}${v === 'none' ? '' : `?vs=${encodeURIComponent(v)}`}`)}>
-            <SelectTrigger className="h-8 w-[180px]" aria-label="Overlay another run">
-              <SelectValue>{overlay || 'none'}</SelectValue>
-            </SelectTrigger>
-            <SelectContent align="end">
-              <SelectItem value="none">none</SelectItem>
-              {runs.filter((r) => r.name !== name).map((r) => (
-                <SelectItem key={r.name} value={r.name}>{r.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="mr-1 text-xs text-muted-foreground">Overlay</span>
+          {runs.filter((r) => r.name !== name).map((r) => {
+            const on = overlay.includes(r.name)
+            const next = on ? overlay.filter((x) => x !== r.name) : [...overlay, r.name]
+            return (
+              <button
+                key={r.name}
+                type="button"
+                aria-pressed={on}
+                title={r.title}
+                onClick={() => navigate(`/workshop/runs/${name}${next.length ? `?vs=${encodeURIComponent(next.join(','))}` : ''}`)}
+                className={cn('rounded-full border px-2 py-0.5 font-mono text-[11px]', on ? 'border-foreground bg-foreground text-background' : 'text-muted-foreground hover:text-foreground')}
+              >
+                {r.live ? '● ' : ''}{r.name}
+              </button>
+            )
+          })}
+        </div>
       }
     >
       {error && <ErrorNote error={error} />}

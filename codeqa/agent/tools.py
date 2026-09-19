@@ -150,7 +150,8 @@ class RepoTools:
         lines = [f"{s.path}:L{s.start}-L{s.end}  {s.kind}  {truncate(s.signature, self.caps.signature_chars)}"
                  + (f"  [in {s.parent}]" if s.parent else "") for s in hits[:cap]]
         # the hit shows the signature line's content, so that one line is citable (decision #7); the range is not
-        self.files_read.extend(Span(path=s.path, start=s.start, end=s.start) for s in hits[:cap])
+        # the hit line shows `path:Lstart-Lend`, so citing that range is grounded in tool output (lane C, 2026-09-20; grep hits likewise)
+        self.files_read.extend(Span(path=s.path, start=s.start, end=s.end) for s in hits[:cap])
         if len(hits) > cap:
             lines.append(f"(+{len(hits) - cap} more; narrow with kind or file_pattern)")
         return self._finish(f"{len(hits)} match(es){note}:\n" + "\n".join(lines))

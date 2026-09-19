@@ -135,9 +135,10 @@ def test_grep_hits_count_as_seen_lines(t):
 
 
 def test_find_symbol_and_overview_register_signature_lines_only(t):
+    # find_symbol prints `path:Lstart-Lend`, so the displayed range counts as shown (lane C, 2026-09-20, on the lead's instruction);
+    # overview still registers only the signature lines it prints.
     call(t.find_symbol, name="Flask")
-    assert Span(path="src/flask/app.py", start=81, end=81) in t.files_read
-    assert not any(s.path == "src/flask/app.py" and s.end > s.start for s in t.files_read)   # never the whole range
+    assert any(s.path == "src/flask/app.py" and s.start == 81 and s.end > 81 for s in t.files_read)
     n_before = len(t.files_read)
     out = call(t.overview, path="src/flask/json/provider.py")
     shown = [l for l in out.splitlines() if l.lstrip().startswith("L")]

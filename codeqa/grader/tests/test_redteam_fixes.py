@@ -86,3 +86,18 @@ def test_b8_final_context_accounting():
     assert eff == 1.0 and not over                                    # 9300 / (4000 + 12*1500) = 0.42: free zone
     eff_old, _ = efficiency(tr.stats, b, "multiplicative")            # cumulative fallback over-counts
     assert eff_old < eff
+
+
+async def test_partial_grounding_scales_instead_of_zeroing(repo, tasks, trace):
+    from codeqa.grader.grade import grade
+    tr = trace("good_locate").model_copy(deep=True)
+    tr.stats.files_read = [Span(path=S, start=30, end=38)]                             # read 30-38; cites 30-48 (file has 48 lines)
+    tr.answer = f"Session tokens are validated in validate_session [{S}:L30-L48]."
+    tr.messages[-1].content = tr.answer
+    r = await grade(tasks["mini-locate"], tr, repo=repo)
+    assert r.gate_failed is None
+    assert 0.5 < r.components.citations_grounded < 1.0 and r.reward == pytest.approx(r.components.citations_grounded)
+    tr.answer = f"Session tokens are validated in validate_session [{S}:L1-L10]."       # nothing shown: still a gate
+    tr.messages[-1].content = tr.answer
+    r = await grade(tasks["mini-locate"], tr, repo=repo)
+    assert r.gate_failed == "grounding"

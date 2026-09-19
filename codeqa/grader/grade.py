@@ -1,8 +1,8 @@
 """task + trace -> GradeResult (C7). Gates in order, then correctness, then efficiency.
 
-  gates:   format -> citations parse -> citations exist -> citations grounded -> budget    any failure = reward 0
+  gates:   format -> citations parse -> citations exist -> grounding (only if NO cited line was shown) -> budget    any failure = 0
   correct: verifiers (zero API calls) for locate|value|enumerate|codescout; judge for trace|explain with rubric/reference
-  reward:  correctness * efficiency     judge failure -> NaN (gate_failed = judge_error)
+  reward:  correctness * efficiency * grounded_fraction (share of cited lines shown)     judge failure -> NaN (gate_failed = judge_error)
 """
 from __future__ import annotations
 
@@ -10,12 +10,19 @@ import asyncio
 import math
 
 from codeqa.grader import gates
-from codeqa.grader.citations import check_citations, grounded_only_by_tolerance
+from codeqa.grader.citations import check_citations, grounded_fraction, grounded_only_by_tolerance
 from codeqa.grader.efficiency import context_tokens, efficiency, redundant_reads
 from codeqa.grader.judge import JudgeClient, judge
 from codeqa.grader.repo import RepoFiles, load_repo
 from codeqa.grader.verifiers import uses_judge, verify
 from codeqa.shared.contracts import GradeComponents, GradeResult, Task, Trace
+
+import os
+
+# Ablation switch (decisions.md, phase-1 no-gates arm): when off, cited-file-exists and cited-lines-read no longer zero the
+# reward; the components still record the fractions so fabrication shows up in env/all/citations_{exist,grounded}.
+def honesty_gates() -> bool:   # read per call so a job can train ungated and still score its checkpoint with the common grader
+    return os.environ.get("CODEQA_HONESTY_GATES", "on").lower() != "off"
 
 
 def _fail(gate: str, note: str, comps: GradeComponents) -> GradeResult:
@@ -40,14 +47,20 @@ async def grade(task: Task, trace: Trace, variant: str = "none", judge_client: J
     comps.citations_parse = 1.0
 
     report = check_citations(answer, trace.stats.files_read, task.repo_id, task.grading.expected_symbols, repo=repo)
-    if not report.all_exist:
-        bad = [f"{c.path}:L{c.start}-L{c.end}" for c in report.citations if not c.exists]
-        return _fail("citations", f"citations: not in snapshot: {', '.join(bad[:3])}", comps)
-    comps.citations_exist = 1.0
-    if not report.all_grounded:
-        bad = [f"{c.path}:L{c.start}-L{c.end}" for c in report.citations if not c.grounded]
-        return _fail("grounding", f"grounding: cited but not read: {', '.join(bad[:3])}", comps)
-    comps.citations_grounded = 1.0
+    n = max(len(report.citations), 1)
+    if honesty_gates():
+        if not report.all_exist:
+            bad = [f"{c.path}:L{c.start}-L{c.end}" for c in report.citations if not c.exists]
+            return _fail("citations", f"citations: not in snapshot: {', '.join(bad[:3])}", comps)
+        comps.citations_exist = 1.0
+        gf = grounded_fraction(report, trace.stats.files_read, repo)
+        if gf == 0.0:                                     # nothing cited was shown: still a gate
+            bad = [f"{c.path}:L{c.start}-L{c.end}" for c in report.citations if not c.grounded]
+            return _fail("grounding", f"grounding: nothing cited was read: {', '.join(bad[:3])}", comps)
+        comps.citations_grounded = gf                     # fraction of cited lines shown; multiplies the reward (2026-09-20)
+    else:  # ablation (CODEQA_HONESTY_GATES=off): fabrication is not gated, only measured
+        comps.citations_exist = sum(c.exists for c in report.citations) / n
+        comps.citations_grounded = sum(c.grounded for c in report.citations) / n
     comps.identifier_grounded = 1.0 if (not task.grading.expected_symbols or any(c.anchors_symbol for c in report.citations)) else 0.0
 
     ok, why = gates.budget_gate(trace, budget)
@@ -68,7 +81,10 @@ async def grade(task: Task, trace: Trace, variant: str = "none", judge_client: J
     else:
         comps.correctness, note = verify(task, answer, report, repo)
 
-    reward = comps.correctness * comps.efficiency        # length is NOT here: the trainer applies gates.length_factor as shaping
+    ground = comps.citations_grounded if honesty_gates() else 1.0     # partial grounding scales the reward; the ablation arm ignores it
+    reward = comps.correctness * comps.efficiency * ground             # length is NOT here: the trainer applies gates.length_factor as shaping
+    if honesty_gates() and ground < 0.999:
+        note += f"; grounded {ground:.0%} of cited lines (x{ground:.2f})"
     return GradeResult(reward=reward, components=comps, gate_failed=None, notes=note)
 
 

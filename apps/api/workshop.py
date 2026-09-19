@@ -81,7 +81,29 @@ def read_json(p: Path, default: Any = None) -> Any:
 
 METRIC_PREFIXES = ("env/", "eval/", "optim/", "progress/", "kl_ref/", "loss/", "time/train_step", "time/total",
                    "time/compute_group_rewards:total", "time/policy_sample:total", "time/env_step:total", "time/run_evaluations_parallel")
-LIVE_SECONDS = 180.0
+LIVE_SECONDS = 330.0  # logs arrive via a 2-min volume sync plus a 30 s commit; allow for one missed sync
+_growth: dict[str, tuple[int, float]] = {}  # run -> (rows last seen, time the row count last grew)
+
+
+def _is_live(name: str, n_rows: int, mtime: float, planned: int | None) -> bool:
+    """Live = new metric rows keep arriving. mtime alone lies here: the volume sync rewrites every file it pulls."""
+    now = time.time()
+    seen = _growth.get(name)
+    if seen is None:
+        # first sight this process: trust a fresh mtime once
+        _growth[name] = (n_rows, mtime if now - mtime < LIVE_SECONDS else 0.0)
+    elif n_rows > seen[0]:
+        _growth[name] = (n_rows, now)
+    last_growth = _growth[name][1]
+    if planned and n_rows >= planned:
+        return False
+    return now - last_growth < LIVE_SECONDS
+
+
+def run_titles() -> dict[str, dict[str, Any]]:
+    """Readable names and hypotheses per run, from data/logs/runs.json (lane C, LOG 2026-09-20)."""
+    p = paths.LOGS / "runs.json"
+    return cached("runs.json", p, lambda: read_json(p, {}) or {})
 
 
 def run_dir(name: str) -> Path:
@@ -131,12 +153,19 @@ def run_row(name: str) -> dict[str, Any] | None:
     rows = _run_metrics(name)
     last = _mtime(met_p)
     iterations = sorted(int(p.name.split("_")[1]) for p in d.glob("iteration_*") if p.is_dir())
+    meta = run_titles().get(name, {})
+    planned = meta.get("steps") if isinstance(meta.get("steps"), int) else None
     return {
         "name": name,
+        "title": meta.get("title") or name,
+        "hypothesis": meta.get("hypothesis"),
+        "variant": meta.get("variant"),
+        "planned_steps": planned,
+        "reward_setting": meta.get("reward"),
         "steps": len(rows),
         "started": _mtime(cfg_p) if cfg_p.exists() else None,
         "updated": last if last > 0 else None,
-        "live": last > 0 and time.time() - last < LIVE_SECONDS,
+        "live": last > 0 and _is_live(name, len(rows), last, planned),
         "config": _config_summary(read_json(cfg_p, {}) or {}),
         "iterations": iterations,
         "last_reward": next((r.get("env/all/reward/total") for r in reversed(rows) if r.get("env/all/reward/total") is not None), None),

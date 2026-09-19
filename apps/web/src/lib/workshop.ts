@@ -32,6 +32,11 @@ export interface RunConfig {
 }
 export interface RunRow {
   name: string
+  title: string
+  hypothesis?: string | null
+  variant?: string | null
+  planned_steps?: number | null
+  reward_setting?: string | null
   steps: number
   started: number | null
   updated: number | null

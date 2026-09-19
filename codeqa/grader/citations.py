@@ -69,6 +69,21 @@ def check_citations(answer: str, files_read: list[Span], repo_id: str,
     return CitationReport(citations=cits)
 
 
+def grounded_fraction(report: CitationReport, files_read: list[Span], repo: RepoFiles,
+                      tolerance: int = GROUNDING_TOLERANCE) -> float:
+    """Mean over citations of the share of cited lines that were shown this episode (0 when nothing was)."""
+    if not report.citations:
+        return 0.0
+    cov = read_lines_by_path(files_read, repo.normalize, tolerance)
+    fracs = []
+    for c in report.citations:
+        if c.start > c.end:
+            fracs.append(0.0); continue
+        lines = set(range(c.start, c.end + 1))
+        fracs.append(len(lines & cov.get(repo.normalize(c.path), set())) / len(lines))
+    return sum(fracs) / len(fracs)
+
+
 def cited_paths(report: CitationReport, repo: RepoFiles) -> set[str]:
     return {repo.normalize(c.path) for c in report.citations}
 
