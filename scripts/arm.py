@@ -17,7 +17,13 @@ ARMS = {  # arm -> (variant, extra env, default steps)
     "lean": ("lean", {}, 20),
     "bash": ("bash", {"CODEQA_BASH_EXECUTOR": "modal", "CODEQA_MODAL_SANDBOXES": "16"}, 20),
     "nogates": ("full", {"CODEQA_HONESTY_GATES": "off"}, 10),
-    "stage2": ("lean", {}, 30),       # cheap config: lean prefix (1k tree map, 4 tools), merged task set, 8 groups (env overrides below)
+    "stage2": ("lean", {}, 30),
+    # phase 6 (2026-09-20): bash on 9B, reward v2 + harness fixes; what varies is room and efficiency pressure
+    "bash16": ("bash", {"CODEQA_BASH_EXECUTOR": "modal", "CODEQA_MODAL_SANDBOXES": "16", "CODEQA_CAPS_CALLS": "16"}, 16),
+    "bash24": ("bash", {"CODEQA_BASH_EXECUTOR": "modal", "CODEQA_MODAL_SANDBOXES": "16", "CODEQA_CAPS_CALLS": "24"}, 16),
+    "bash24eff": ("bash", {"CODEQA_BASH_EXECUTOR": "modal", "CODEQA_MODAL_SANDBOXES": "16", "CODEQA_CAPS_CALLS": "24", "CODEQA_EFF_FREE_FRACTION": "0.33", "CODEQA_ARM_REWARD_VARIANT": "multiplicative"}, 16),
+    "bash16v1": ("bash", {"CODEQA_BASH_EXECUTOR": "modal", "CODEQA_MODAL_SANDBOXES": "16", "CODEQA_CAPS_CALLS": "16", "CODEQA_REWARD": "v1"}, 16),   # control: yesterday's reward
+    "lean16": ("lean", {"CODEQA_CAPS_CALLS": "16"}, 16),                                                                                      # product harness under reward v2       # cheap config: lean prefix (1k tree map, 4 tools), merged task set, 8 groups (env overrides below)
 }
 BASE_PROFILE = os.environ.get("CODEQA_ARM_PROFILE", "qwen4b-base")
 BASE_MODEL = {"qwen4b-base": "Qwen/Qwen3.5-4B", "qwen9b-base": "Qwen/Qwen3.5-9B"}[BASE_PROFILE]
@@ -29,7 +35,7 @@ def common() -> list[str]:
     return ["--tasks", str(paths.TASKS_TRAIN / os.environ.get("CODEQA_ARM_TASKS", "run1.jsonl")),     # CODEQA_ARM_TASKS: file under data/tasks/train
             "--profile", BASE_PROFILE,                             # CODEQA_ARM_PROFILE: qwen4b-base (default) | qwen9b-base
             "--group-size", "8", "--groups-per-batch", os.environ.get("CODEQA_ARM_GROUPS", "16"),
-            "--lr", "1e-4", "--variant", "none", "--eval-tasks", str(paths.TASKS_EVAL / "fast.jsonl"), "--eval-every", os.environ.get("CODEQA_ARM_EVAL_EVERY", "10"), "--eval-max-tasks", os.environ.get("CODEQA_ARM_EVAL_TASKS", "60"), "--save-every", "5",
+            "--lr", "1e-4", "--variant", os.environ.get("CODEQA_ARM_REWARD_VARIANT", "none"), "--eval-tasks", str(paths.TASKS_EVAL / os.environ.get("CODEQA_ARM_EVAL_FILE", "fast.jsonl")), "--eval-every", os.environ.get("CODEQA_ARM_EVAL_EVERY", "10"), "--eval-max-tasks", os.environ.get("CODEQA_ARM_EVAL_TASKS", "60"), "--save-every", "5",
             "--seed", "0", "--if-exists", "resume",
             *(["--judge-model", os.environ["CODEQA_ARM_JUDGE"]] if os.environ.get("CODEQA_ARM_JUDGE") else [])]   # e.g. claude-sonnet-5: cleaner explain rewards      # resume: Modal restarts a preempted function with the same input (seen 2026-09-19 20:06)
 
@@ -136,7 +142,8 @@ def main() -> int:
     from codeqa.evals import run as evals
     for k in list(env):                      # the grader switch must NOT apply to the common-grader eval
         if k == "CODEQA_HONESTY_GATES": os.environ.pop(k, None)
-    return evals.main(["--profile", name, "--tasks", str(paths.TASKS_EVAL / "fast.jsonl"), "--set", "fast_t02", "--temperature", "0.2", "--concurrency", "8",
+    ev_file = os.environ.get("CODEQA_ARM_EVAL_FILE", "fast.jsonl"); ev_t = os.environ.get("CODEQA_ARM_FINAL_T", "0.2")
+    return evals.main(["--profile", name, "--tasks", str(paths.TASKS_EVAL / ev_file), "--set", "fast_t02", "--temperature", ev_t, "--concurrency", "8",
                        "--max-tasks", os.environ.get("CODEQA_ARM_EVAL_TASKS", "60"),
                        *(["--judge-model", os.environ["CODEQA_ARM_JUDGE"]] if os.environ.get("CODEQA_ARM_JUDGE") else [])])
 

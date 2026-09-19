@@ -23,6 +23,7 @@ def parse_citations(answer: str) -> list[Citation]:
     return out
 
 
+OVERSHOOT_TOLERANCE = 3   # a cited range may run up to 3 lines past the file end (models overshoot after `sed -n`)
 GROUNDING_TOLERANCE = 1   # a cited range may extend one line past what was shown (grep shows one line; models cite L39-L40)
 
 
@@ -62,6 +63,9 @@ def check_citations(answer: str, files_read: list[Span], repo_id: str,
     cits = parse_citations(answer)
     for c in cits:
         path = repo.normalize(c.path)
+        n = repo.line_count(path)
+        if n is not None and c.start <= n < c.end <= n + OVERSHOOT_TOLERANCE:   # cited a few lines past EOF: clamp, don't fail the claim
+            c.end = n
         c.exists = c.start <= c.end and repo.exists(path, c.start, c.end)
         lines = set(range(c.start, c.end + 1))
         c.grounded = bool(lines) and c.start <= c.end and lines <= cov.get(path, set())

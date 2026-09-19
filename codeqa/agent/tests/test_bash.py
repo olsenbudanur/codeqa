@@ -45,8 +45,14 @@ def test_nl_sed_records_a_range(t):
     assert Span(path="src/flask/app.py", start=81, end=85) in t.files_read
 
 
-def test_unnumbered_output_records_nothing(t):
+def test_unnumbered_single_file_read_records_its_range(t):
+    """2026-09-20: `sed -n 'A,Bp' FILE` shows real lines; the model can count from A, so the range counts as seen."""
     bash(t, "sed -n '81,85p' src/flask/app.py")
+    assert [(s.path, s.start, s.end) for s in t.files_read] == [("src/flask/app.py", 81, 85)]
+
+
+def test_unnumbered_multi_file_output_records_nothing(t):
+    bash(t, "grep -r 'import' src/flask/app.py src/flask/cli.py | head -5")     # no -n: which file/line is unknowable
     assert t.files_read == []
 
 
@@ -61,7 +67,7 @@ def test_blocked_commands(t, cmd):
 
 def test_unknown_binary_is_not_available(t):
     out = bash(t, "awk '{print}' src/flask/app.py")
-    assert "command not found" in out or "restricted" in out or out.startswith("(exit")
+    assert "command not found" in out or "restricted" in out or out.startswith("(exit") or "only read-only commands" in out   # precheck rejects the command word
 
 
 def test_output_cap(t):

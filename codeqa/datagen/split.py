@@ -29,8 +29,29 @@ def eval_repo_prefixes() -> set[str]:
     return {f"{o}__{r}__" for o, r in sq.REPOS.values()}
 
 
+STRIP_REFERENCE_SOURCES = ("deepcodebench", "codescout", "structural", "teacher")   # train files only; raw/ and eval/ keep the field
+
+
+def write_train(path, tasks) -> int:
+    """Train files omit null/empty grading fields (`reference_answer: null` etc.) so a record shows only what grades it."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    n = 0
+    with path.open("w") as f:
+        for t in tasks:
+            f.write(t.model_dump_json(exclude_none=True) + "\n"); n += 1
+    return n
+
+
+def strip_reference(t: Task) -> Task:
+    """Training records drop `reference_answer`: the judge's rubric mode never reads it, the verifier never reads it,
+    and it is the largest field in the file. Raw files keep it for review; eval files keep it for the external judges."""
+    if t.source in STRIP_REFERENCE_SOURCES and t.grading.reference_answer:
+        return t.model_copy(update={"grading": t.grading.model_copy(update={"reference_answer": None})})
+    return t
+
+
 def build(lo: float = 0.1, hi: float = 0.9, per_repo_cap: int = 120, keep_unmeasured: bool = False, fast_n: int = 60,
-          seed: int = 7, refresh_fast: bool = False) -> dict[str, Any]:
+          seed: int = 7, refresh_fast: bool = False, keep_references: bool = False) -> dict[str, Any]:
     raw = load_raw(RAW_SOURCES)
     tasks, dropped = dedupe(raw)
     from codeqa.datagen.filter import load_passrate
@@ -83,10 +104,12 @@ def build(lo: float = 0.1, hi: float = 0.9, per_repo_cap: int = 120, keep_unmeas
         capped.extend(take)
         overflow.extend(t for v in by_src.values() for t in v)
     rng.shuffle(capped)
+    if not keep_references:
+        capped = [strip_reference(t) for t in capped]
     # write train files
     for src in RAW_SOURCES:
-        write(paths.TASKS_TRAIN / f"{src}.jsonl", [t for t in capped if t.source == src])
-    n_all = write(paths.TASKS_TRAIN / "all.jsonl", capped)
+        write_train(paths.TASKS_TRAIN / f"{src}.jsonl", [t for t in capped if t.source == src])
+    n_all = write_train(paths.TASKS_TRAIN / "all.jsonl", capped)
     write(paths.TASKS_RAW / "reserve_hard.jsonl", hard)
     write(paths.TASKS_RAW / "reserve_easy.jsonl", easy + overflow)
     # fast eval: keep the ids already in eval/fast.jsonl (baselines were run on them), refreshed from the current records;

@@ -12,7 +12,7 @@ async def test_metrics_keys_and_gate_one_hot(tasks, trace, repo):
     r = await grade(tasks[tr.task_id], tr, repo=repo)
     m = metrics(r, tr, tasks[tr.task_id])
     assert REQUIRED_METRICS <= set(m)
-    assert m["gate_citations"] == 1.0 and m["gate_format"] == 0.0 and m["stop_answer"] == 1.0
+    assert m["gate_grounding"] == 1.0 and m["gate_citations"] == 0.0 and m["gate_format"] == 0.0 and m["stop_answer"] == 1.0   # v2: fabricated path -> ungrounded, not an existence gate
 
 
 async def test_metrics_nan_reward_maps_to_zero_with_flag(tasks, trace, repo):

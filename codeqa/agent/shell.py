@@ -22,7 +22,7 @@ from codeqa.shared.contracts import Span
 
 ALLOWED_BINARIES = ("ls", "cat", "head", "tail", "grep", "egrep", "fgrep", "find", "nl", "wc", "sort", "uniq", "cut", "tr",
                     "echo", "basename", "dirname", "sed", "xargs", "tree", "rg", "diff", "stat", "file", "true", "false")
-OUTPUT_CAP = 8000
+OUTPUT_CAP = 12000   # 2026-09-20: 8000 forced 100-line chunks; explain tasks burned every call reading one file
 TIMEOUT = 15.0
 SANDBOX_EXEC = shutil.which("sandbox-exec")   # resolved now: the child PATH is the allowlist dir only
 BASH = "/bin/bash"
@@ -35,16 +35,43 @@ _BLOCK = [
     (re.compile(r"`|\$\(|\$\{"), "command substitution is not allowed"),
     (re.compile(r"\bfind\b[^|]*\s-(delete|exec|execdir|ok|okdir|fprint\w*)\b"), "find -delete/-exec are not allowed"),
     (re.compile(r"\bsed\b[^|]*\s(-[a-zA-Z]*i[a-zA-Z]*|--in-place)\b"), "sed -i is not allowed"),
-    (re.compile(r"\b(rm|mv|cp|chmod|chown|tee|dd|truncate|python\d?|perl|ruby|node|curl|wget|ssh|nc|bash|sh|zsh|env|export|eval|exec)\b"),
-     "only read-only commands are available: " + ", ".join(ALLOWED_BINARIES)),
+    # (the read-only allowlist is enforced on COMMAND WORDS in precheck(); a word-anywhere regex blocked `grep x python-package/`)
 ]
 
 
 STDERR_NULL = re.compile(r"\s*2>\s*/dev/null")   # harmless read-only idiom; the model uses it constantly (13 % of commands were blocked for it)
 
 
+DISALLOWED_WORDS = {"rm", "mv", "cp", "chmod", "chown", "tee", "dd", "truncate", "python", "python2", "python3", "perl", "ruby", "node",
+                    "curl", "wget", "ssh", "nc", "bash", "sh", "zsh", "env", "export", "eval", "exec", "cd"}
+
+
+def _command_words(command: str) -> list[str]:
+    """First word of every pipeline / list segment, quote-aware: `grep -E "a|b" . | head` -> [grep, head]."""
+    import shlex
+    try:
+        lex = shlex.shlex(command, posix=True, punctuation_chars=True)
+        lex.whitespace_split = True
+        tokens = list(lex)
+    except ValueError:                                   # unbalanced quotes: fall back to a naive split
+        tokens = re.split(r"(\|\||&&|;|\|)", command)
+        tokens = [t for part in tokens for t in ([part] if part in ("||", "&&", ";", "|") else part.split())]
+    words, start = [], True
+    for t in tokens:
+        if t in ("|", "||", "&&", ";", "&", "|&"):
+            start = True
+            continue
+        if start:
+            words.append(t.rsplit("/", 1)[-1])
+            start = False
+    return words
+
+
 def precheck(command: str) -> str | None:
     command = STDERR_NULL.sub("", command)
+    bad = [w for w in _command_words(command) if w in DISALLOWED_WORDS or (w not in ALLOWED_BINARIES and not w.startswith("-"))]
+    if bad:
+        return f"only read-only commands are available: {', '.join(ALLOWED_BINARIES)} (got: {bad[0]})"
     cmd = command.strip()
     if not cmd:
         return "empty command"
@@ -159,11 +186,48 @@ def _file_args(command: str, known: dict[str, int]) -> list[str]:
     return out
 
 
+_SED_RANGE = re.compile(r"\bsed\s+-n\s+['\"]?(\d+),(\d+)p['\"]?")
+_HEAD_N = re.compile(r"\bhead\s+(?:-n\s*|-)(\d+)")
+_TAIL_N = re.compile(r"\btail\s+(?:-n\s*|-)(\d+)")
+
+
+def _unnumbered_span(command: str, output: str, single: str, n_lines: int) -> Span | None:
+    """`sed -n 'A,Bp' FILE`, `head -N FILE`, `tail -N FILE`, `cat FILE` show real lines without numbers; the model can
+    count from the range it asked for, so they count as seen (2026-09-20: a correct Pillow answer scored 0 for this).
+    Only the lines actually printed count (the output cap can cut a range short)."""
+    printed = len([ln for ln in output.splitlines() if not ln.startswith("(output cut") and not ln.startswith("[")])
+    if printed == 0:
+        return None
+    first = command.split("|")[0] if "|" in command else command
+    if "nl " in command or " -n" in first.split("sed")[0]:
+        return None                                       # numbered forms are handled by the per-line parser
+    m = _SED_RANGE.search(command)
+    if m and "sed" in first:
+        a, b = int(m.group(1)), int(m.group(2))
+        return Span(path=single, start=a, end=min(b, n_lines, a + printed - 1)) if a <= n_lines else None
+    m = _HEAD_N.search(command)
+    if m and first.strip().startswith("head"):
+        return Span(path=single, start=1, end=min(int(m.group(1)), n_lines, printed))
+    m = _TAIL_N.search(command)
+    if m and first.strip().startswith("tail"):
+        k = min(int(m.group(1)), n_lines, printed)
+        return Span(path=single, start=n_lines - k + 1, end=n_lines)
+    if first.strip().startswith("cat ") and "|" not in command:
+        return Span(path=single, start=1, end=min(n_lines, printed))
+    return None
+
+
 def seen_spans(command: str, output: str, known: dict[str, int]) -> list[Span]:
-    """Lines shown WITH their numbers. Unnumbered output records nothing, so the model learns to use grep -n / nl -ba."""
+    """Lines shown with their numbers (grep -n, nl -ba, cat -n), plus unnumbered reads of one file whose range is
+    implied by the command (sed -n 'A,Bp', head, tail, cat) — see _unnumbered_span."""
     hits: set[tuple[str, int]] = set()
     files = _file_args(command, known)
     single = files[0] if len(files) == 1 else None
+    if single is not None:
+        sp = _unnumbered_span(command, output, single, known[single])
+        if sp is not None:
+            for k in range(sp.start, sp.end + 1):
+                hits.add((single, k))
     for line in output.splitlines():
         m = _PATH_LINE.match(line)
         if m:

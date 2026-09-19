@@ -57,3 +57,12 @@ def test_merge_records_weights_by_samples():
     assert m["n"] == 4 and m["answered"] == 0.75 and m["found"] == 0.75 and m["tool_calls"] == 5.0
     assert m["n_answered"] == 3 and abs(m["correct_lenient"] - (1.0 * 1 + 0.5 * 2) / 3) < 1e-3
     assert m["n_format_ok"] == 1 and m["correct_given_format"] == 1.0 and m["stops"] == {"answer": 3, "budget": 1}
+
+
+def test_strip_reference_only_for_non_teacher_sources():
+    from codeqa.datagen.split import strip_reference
+    from codeqa.shared.contracts import Grading
+    d = Task(task_id="d", repo_id="a__b__1234567", question="q", task_type="explain", source="deepcodebench", grading=Grading(rubric=["f"], reference_answer="long"))
+    t = Task(task_id="t", repo_id="a__b__1234567", question="q", task_type="explain", source="teacher", grading=Grading(rubric=["f"], reference_answer="short"))
+    assert strip_reference(d).grading.reference_answer is None and strip_reference(d).grading.rubric == ["f"]
+    assert strip_reference(t).grading.reference_answer is None            # teacher too: train files are rubric-only

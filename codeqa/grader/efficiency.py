@@ -20,7 +20,8 @@ from codeqa.shared.contracts import Budget, Span, TraceStats
 Variant = Literal["none", "multiplicative", "hard_cap", "token_cost"]
 VARIANTS: tuple[str, ...] = ("none", "multiplicative", "hard_cap", "token_cost")
 TOKENS_PER_CALL = 1500
-FREE_FRACTION = 0.5
+import os as _os
+FREE_FRACTION = float(_os.environ.get("CODEQA_EFF_FREE_FRACTION", "0.5"))   # share of the call/token budget that is free of efficiency pressure
 FLOOR = 0.5
 
 

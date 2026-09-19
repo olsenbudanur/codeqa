@@ -25,6 +25,12 @@ def honesty_gates() -> bool:   # read per call so a job can train ungated and st
     return os.environ.get("CODEQA_HONESTY_GATES", "on").lower() != "off"
 
 
+def reward_version() -> str:
+    """CODEQA_REWARD=v1 restores the 2026-09-19 reward (all-or-nothing citation-existence gate, no length floor) for controls."""
+    import os
+    return os.environ.get("CODEQA_REWARD", "v2")
+
+
 def _fail(gate: str, note: str, comps: GradeComponents) -> GradeResult:
     return GradeResult(reward=0.0, components=comps, gate_failed=gate, notes=note)
 
@@ -49,11 +55,11 @@ async def grade(task: Task, trace: Trace, variant: str = "none", judge_client: J
     report = check_citations(answer, trace.stats.files_read, task.repo_id, task.grading.expected_symbols, repo=repo)
     n = max(len(report.citations), 1)
     if honesty_gates():
-        if not report.all_exist:
+        if reward_version() == "v1" and not report.all_exist:            # v1: one bad path zeroes the answer
             bad = [f"{c.path}:L{c.start}-L{c.end}" for c in report.citations if not c.exists]
             return _fail("citations", f"citations: not in snapshot: {', '.join(bad[:3])}", comps)
-        comps.citations_exist = 1.0
-        gf = grounded_fraction(report, trace.stats.files_read, repo)
+        comps.citations_exist = sum(c.exists for c in report.citations) / n      # v2 (2026-09-20): per-claim credit; a bad path
+        gf = grounded_fraction(report, trace.stats.files_read, repo)             # is simply an ungrounded claim in the fraction
         if gf == 0.0:                                     # nothing cited was shown: still a gate
             bad = [f"{c.path}:L{c.start}-L{c.end}" for c in report.citations if not c.grounded]
             return _fail("grounding", f"grounding: nothing cited was read: {', '.join(bad[:3])}", comps)
@@ -115,7 +121,7 @@ def metrics(result: GradeResult, trace: Trace, task: Task) -> dict[str, float]:
         "redundant_reads": float(redundant_reads(trace.stats.files_read)),
         "turns": float(trace.stats.turns),
         "correct": 1.0 if (not nan and result.reward > 0) else 0.0,
-        "length_factor": gates.length_factor(gates.extract_answer(trace), task.effective_budget()),
+        "length_factor": gates.length_factor(gates.extract_answer(trace), task.effective_budget(), task.task_type),
         "answer_over_cap": 1.0 if gates.approx_tokens(gates.extract_answer(trace)) > task.effective_budget().max_answer_tokens else 0.0,
         "verbatim_share": gates.verbatim_share(gates.extract_answer(trace), trace),
         "grounded_by_tolerance": float(grounded_only_by_tolerance(gates.extract_answer(trace), trace.stats.files_read, load_repo(task.repo_id))) if c.citations_parse else 0.0,

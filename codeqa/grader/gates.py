@@ -82,8 +82,8 @@ def extract_answer(trace: Trace) -> str:
     return text
 
 
-VERBATIM_MAX_SHARE = 0.5     # answers whose lines are mostly pasted tool output are not answers
-VERBATIM_MIN_LINES = 8       # ...but quoting a few lines of code is fine: the gate needs at least this many pasted lines
+VERBATIM_MAX_SHARE = 0.7     # answers whose lines are mostly pasted tool output are not answers (0.5 failed a correct answer that quoted a 12-line function, 2026-09-20)
+VERBATIM_MIN_LINES = 12      # ...but quoting a function is fine: the gate needs at least this many pasted lines
 LENGTH_FLOOR = 0.1
 
 
@@ -107,12 +107,25 @@ def verbatim_share(answer: str, trace: Trace) -> float:
     return pasted / len(lines)
 
 
-def length_factor(answer: str, budget: Budget) -> float:
-    """Soft length term: 1.0 up to the cap, then cap / tokens (an answer twice the cap keeps half its reward), floored."""
+LENGTH_FLOOR_FRACTION = 0.33      # v2: answers shorter than a third of the cap lose reward linearly (counters the token-sum loss bias)
+LENGTH_FLOOR_MIN = 0.5
+
+
+def length_factor(answer: str, budget: Budget, task_type: str | None = None) -> float:
+    """Soft length term. v2 (2026-09-20): for judged explain tasks a floor below LENGTH_FLOOR_FRACTION x cap (a one-line
+    locate answer is right, a one-line explanation is not); the over-cap scaling is OFF unless CODEQA_LENGTH_CAP=on.
+    v1: 1.0 up to the cap, then cap / tokens, floored at LENGTH_FLOOR."""
+    import os
     n = approx_tokens(answer)
-    if n <= budget.max_answer_tokens:
-        return 1.0
-    return max(LENGTH_FLOOR, budget.max_answer_tokens / n)
+    cap = budget.max_answer_tokens
+    if os.environ.get("CODEQA_REWARD", "v2") == "v1":
+        return 1.0 if n <= cap else max(LENGTH_FLOOR, cap / n)
+    floor = LENGTH_FLOOR_FRACTION * cap
+    if task_type == "explain" and n < floor:
+        return max(LENGTH_FLOOR_MIN, n / floor)
+    if os.environ.get("CODEQA_LENGTH_CAP", "off") == "on" and n > cap:
+        return max(LENGTH_FLOOR, cap / n)
+    return 1.0
 
 
 def format_gate(answer: str, trace: Trace, budget: Budget) -> tuple[bool, str]:

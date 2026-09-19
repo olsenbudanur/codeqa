@@ -20,7 +20,7 @@ EXPECTED = {
     "padded": (None, 1.0),                   # over the answer cap: length is not the grader's business (trainer shaping only)
     "wrong": (None, 0.0),                    # verifiable type, judge never consulted, literal mismatch
     "restated": (None, 0.0),                 # passes gates, satisfies no rubric item
-    "fabricated": ("citations", 0.0),        # path does not exist
+    "fabricated": ("grounding", 0.0),        # v2: a nonexistent path is an ungrounded claim; with nothing else cited, the grounding gate fires
     "unread_citation": ("grounding", 0.0),   # cited file was never read
     "no_tools": ("grounding", 0.0),          # nothing read, so nothing can be grounded
     "judge_injection": (None, 0.0),          # injected instructions do not move the judge

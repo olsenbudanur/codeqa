@@ -32,6 +32,7 @@ def test_deepcodebench_without_index_keeps_raw_paths():
     assert t.grading.expected_paths == ["missing/file.py", "src/transformers/pipelines/base.py"]
     assert t.grading.rubric == ["pad_collate_fn.inner is defined in src/transformers/pipelines/base.py."]
     assert t.grading.required_citations == [] and t.task_type == "explain"
+    assert dcb.infer_type("How does X propagate?") == "trace" and dcb.infer_type("Which class handles Y?") == "explain"   # judged only
 
 
 def test_deepcodebench_with_index_resolves_paths_and_symbols():
@@ -48,7 +49,7 @@ def test_sweqa_citations_resolve_basenames_and_clip():
     row = {"question": "Where is ensure_ascii applied?",
            "answer": "`DefaultJSONProvider` in provider.py sets it (lines 144-148) and again at line 250. In json/provider.py line 166 too."}
     t = sq.to_task(row, "flask", "85c5d93" + "0" * 33, 7, index=idx)
-    assert t.task_id == "sweqa-flask-007" and t.split == "eval" and t.task_type == "locate"
+    assert t.task_id == "sweqa-flask-007" and t.split == "eval" and t.task_type == "explain"   # judged only since 2026-09-20
     spans = {(s.path, s.start, s.end) for s in t.grading.required_citations}
     assert spans == {("src/flask/json/provider.py", 144, 148), ("src/flask/json/provider.py", 166, 166)}   # line 250 past EOF dropped
     assert t.grading.expected_paths == ["src/flask/json/provider.py"]
@@ -77,3 +78,10 @@ def test_codeqabench_maps_fields_one_to_one():
     assert t.task_type == "trace" and t.question == "How does Polygon support ring mutation?"
     assert t.grading.rubric == ["Identifies ListMixin", "Notes _minlength = 1"] and t.grading.expected_paths == ["django/contrib/gis/geos/polygon.py"]
     assert cqb.task_type_of("where") == "explain"
+
+
+def test_rubric_items_are_cleaned_and_capped():
+    from codeqa.datagen.sources import rubrics as rb
+    facts = rb.clean_items(["- `get()` lives in keras/src/activations/__init__.py", "  short ", "x" * 10, "- `get()` lives in keras/src/activations/__init__.py", "a", *[f"fact number {i} about code" for i in range(10)]])
+    assert facts[0] == "`get()` lives in keras/src/activations/__init__.py" and len(facts) == rb.MAX_ITEMS and "short" not in " ".join(facts)
+    assert rb.clean_items(None) == [] and rb.clean_items("nope") == []

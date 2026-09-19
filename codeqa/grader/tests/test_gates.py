@@ -57,9 +57,20 @@ def test_format_gate_stop_reason_and_length_is_soft():
     assert gates.format_gate("short", t, b) == (True, "")
     assert gates.format_gate("word " * 20, t, b) == (True, "")            # over the cap is no longer a gate
     long = "word " * 20
-    assert gates.length_factor(long, b) == pytest.approx(b.max_answer_tokens / gates.approx_tokens(long))   # ...it scales by cap/len
-    assert gates.length_factor("word " * 5, b) == 1.0
-    assert gates.length_factor("word " * 500, b) == gates.LENGTH_FLOOR
+    # v2 (default): no over-cap scaling, but a floor below a third of the cap
+    assert gates.length_factor(long, b) == 1.0
+    assert gates.length_factor("word " * 500, b) == 1.0
+    assert gates.LENGTH_FLOOR_MIN <= gates.length_factor("word " * 2, b, "explain") < 1.0   # the floor applies to explain answers only
+    assert gates.length_factor("word " * 2, b, "locate") == 1.0
+    # v1 (control): scales by cap/len above the cap
+    import os
+    os.environ["CODEQA_REWARD"] = "v1"
+    try:
+        assert gates.length_factor(long, b) == pytest.approx(b.max_answer_tokens / gates.approx_tokens(long))
+        assert gates.length_factor("word " * 5, b) == 1.0
+        assert gates.length_factor("word " * 500, b) == gates.LENGTH_FLOOR
+    finally:
+        os.environ.pop("CODEQA_REWARD", None)
     t.stats.stop_reason = "overflow"
     assert not gates.format_gate("short", t, b)[0]
 

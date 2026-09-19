@@ -34,8 +34,15 @@ async def test_stalled_vs_bad_format_vs_good():
     stalled.messages[-1] = Message(role="assistant", content="", tool_calls=[ToolCall(name="grep", args={"pattern": "x"})])
     stalled.stats.stop_reason = "budget"
     assert await _shaped(tasks["mini-locate"], stalled) == pytest.approx(-0.1)
-    padded = await _shaped(tasks["mini-trace"], _trace("padded"))               # answered, over the cap: scaled in training only
-    assert 0.0 < padded < 1.0
+    padded = await _shaped(tasks["mini-trace"], _trace("padded"))               # answered, over the cap
+    assert padded == 1.0                                                          # v2: no over-cap scaling (the judge's contradicted term polices padding)
+    import os
+    os.environ["CODEQA_LENGTH_CAP"] = "on"
+    try:
+        capped = await _shaped(tasks["mini-trace"], _trace("padded"))
+        assert 0.0 < capped < 1.0                                                 # with the cap switched on it scales in training only
+    finally:
+        os.environ.pop("CODEQA_LENGTH_CAP", None)
     graded = await grade(tasks["mini-trace"], _trace("padded"), judge_client=KeywordJudge(), repo=load_repo(FIXTURE_REPO_ID))
     assert graded.reward == 1.0                                                   # ...and untouched in the grader
     assert await _shaped(tasks["mini-locate"], _trace("good_locate")) == 1.0

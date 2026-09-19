@@ -93,7 +93,7 @@ def sweqa_commits() -> dict[str, str]:
     return sq.parse_repo_commits(text)
 
 
-def import_sweqa() -> dict[str, Any]:
+def import_sweqa(rubrics: bool = True) -> dict[str, Any]:
     t0 = time.time()
     commits = sweqa_commits()
     missing = [s for s in sq.REPOS if s not in commits]
@@ -119,15 +119,25 @@ def import_sweqa() -> dict[str, Any]:
         rate = tot["in_range"] / tot["extracted"] if tot["extracted"] else 0.0
         _log(f"  sweqa/{split}: {len(rows)} rows; citations {tot['in_range']}/{tot['extracted']} resolved ({rate:.0%}); "
              f"{with_cit}/{len(rows)} tasks with >=1")
+    if rubrics:
+        import asyncio
+        from codeqa.datagen.sources import rubrics as rb
+        try:
+            derived = asyncio.run(rb.derive_all(tasks, "sweqa_rubrics"))
+            tasks = rb.apply(tasks, derived)
+        except Exception as e:  # noqa: BLE001 - no key / no credits: keep reference-only records, say so loudly
+            _log(f"  sweqa: rubric derivation skipped ({type(e).__name__}: {str(e)[:100]}); records keep reference_answer only")
+    with_rubric = sum(1 for t in tasks if t.grading.rubric)
     out = paths.TASKS_EVAL / "sweqa.jsonl"
     n = write(out, tasks)
     agg = Counter()
     for v in per_repo.values():
         agg.update({k: v[k] for k in ("extracted", "path_resolved", "in_range", "tasks_with_citations")})
-    report = {"source": "sweqa", "records": n, "file": str(out.relative_to(paths.ROOT)),
+    report = {"source": "sweqa", "records": n, "file": str(out.relative_to(paths.ROOT)), "with_rubric": with_rubric,
+              "rubric_items_mean": round(sum(len(t.grading.rubric) for t in tasks) / max(n, 1), 2),
               "types": dict(Counter(t.task_type for t in tasks)), "totals": dict(agg), "per_repo": per_repo,
               "seconds": round(time.time() - t0, 1)}
-    _log(f"  sweqa: {n} records; citations {agg['in_range']}/{agg['extracted']} resolved overall; "
+    _log(f"  sweqa: {n} records ({with_rubric} with a stored rubric); citations {agg['in_range']}/{agg['extracted']} resolved overall; "
          f"{agg['tasks_with_citations']}/{n} tasks with >=1")
     _save_report("sweqa", report)
     return report

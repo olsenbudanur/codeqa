@@ -58,6 +58,7 @@ Format: `- [YYYY-MM-DD HH:MM] B<n> done — one line with counts/paths`
 - [2026-09-18 23:20] B7 done — handoff in LOG (23:20 entry). Lane B spend after the top-up: ~$27 of the $50 allowance.
 - [2026-09-19 01:20] eval validation — Sonnet 5 + Opus 5 on the fast set: 3 tasks removed (wrong or stale gold, vague question), 6 repaired, replacements deterministic; eval sizes 230 / 719 / 120. Frontier content correctness ~0.83 (Sonnet), gated reward 0.44 because of the 800-token cap. Recommendation to make length proportional is in LOG 01:20. Lane B spend ~$46 of $50.
 - [2026-09-19 03:20] extra — Code-QA-Bench imported: `eval/codeqabench.jsonl` 528 tasks, 10 repos, documented condition; lean agent context is now the default for every caller (LOG 02:20/02:45); pass rates still measured under `full`, re-measure before run one.
+- [2026-09-20] judged-only typing for DeepCodeBench/SWE-QA + stored SWE-QA rubrics (719/719, mean 5.9 items, ~$3); files rebuilt, train/all.jsonl same 1,489 ids (LOG 2026-09-20).
 
 ## Open questions for the lead
 - ~~Anthropic credits exhausted (18:35)~~ restored ~19:10 with $100; lane B holds itself to $50 of it.

@@ -50,8 +50,13 @@ Every long step prints progress unbuffered, caches or logs incrementally, and ca
   should score overlap, not exact equality, and never gate on them.
 - `expected_paths` only contains paths that exist at the pinned commit. Mentions that could not be resolved are dropped
   and counted in the report.
-- `task_type` for imported sources is a regex guess from the question's first words. Judged sources always carry
-  `reference_answer` (and `rubric` for DeepCodeBench) so the judge path works regardless of the type guess.
+- `task_type` for the natural-question sources (DeepCodeBench, SWE-QA, Code-QA-Bench) is judged-only since 2026-09-20:
+  `trace` when the question starts with "how", else `explain`. Their `expected_paths` are evidence mined from prose, not a
+  complete gold set, so path-F1 under-grades them. Programmatic types (locate/value/enumerate) come only from CodeScout and
+  the structural generator, where the gold is complete by construction.
+- SWE-QA rubrics are derived once at import (Sonnet, at most 6 atomic facts from `reference_answer`, cached in
+  `data/cache/rewrites/sweqa_rubrics.jsonl`) and stored in `grading.rubric`, so every judged task uses the judge's rubric mode
+  with a fixed, reviewable denominator. `--no-rubrics` skips the step offline; the judge then falls back to reference mode.
 - Structural tasks point at `<repo_id>__nodoc` (docstrings blanked, line numbers identical) so a paraphrased-docstring
   locate question cannot be solved by grepping the docstring. Facts are read from the original snapshot.
 - `expected_literal` is the source literal with string quotes removed (`utf-8`, `300`, `-1`, `True`); `None` and empty

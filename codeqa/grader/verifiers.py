@@ -58,6 +58,7 @@ def cites_required(report: CitationReport, required: Iterable[Span], repo: RepoF
 
 
 SINGLE_PATH_PRECISION = 2      # one gold path: citing more than this many distinct files starts to cost
+TIGHT_CITATION_LINES = 40       # a cited range this short inside one symbol counts as locating that symbol
 SINGLE_SYMBOL_PRECISION = 3    # one gold symbol: naming more than this many cited symbols starts to cost
 
 
@@ -97,9 +98,17 @@ def predicted_symbols(answer: str, report: CitationReport, repo: RepoFiles, excl
     excl = set(exclude_names)
     out: set[str] = set()
     for c in report.citations:
-        for s in repo.symbols_in(c.path, c.start, c.end):
-            if s.name not in excl and _mentioned(answer, s):
+        inside = [s for s in repo.symbols_in(c.path, c.start, c.end) if s.name not in excl]
+        for s in inside:
+            if _mentioned(answer, s):
                 out.add(s.qualified)
+        # 2026-09-20: a TIGHT citation inside a symbol's body locates it even when the answer never says its name
+        # ("lines 98-102 show the parsing logic" inside GpuInfo.completed scored 0). Whole-file or huge ranges still need the name.
+        if c.grounded and (c.end - c.start + 1) <= TIGHT_CITATION_LINES:
+            containing = [s for s in inside if s.start <= c.start and c.end <= s.end]
+            if containing:
+                innermost = min(containing, key=lambda s: s.end - s.start)
+                out.add(innermost.qualified)
     gold_syms = [g for q in gold for g in repo.find_symbols(q)]
     if gold_syms:
         cited_lines = [(repo.normalize(c.path), n) for c in report.citations if c.grounded for n in range(c.start, min(c.end, c.start + 200) + 1)]
@@ -136,7 +145,9 @@ def symbol_score(answer: str, report: CitationReport, expected_symbols: Iterable
     excl = question_names(question, repo) - {q.rsplit(":", 1)[-1].split(".")[-1] for q in expected}
     pred = predicted_symbols(answer, report, repo, exclude_names=excl, gold=expected)
     if len(expected) == 1:
-        return min(1.0, SINGLE_SYMBOL_PRECISION / max(len(pred), 1)) if pred & gold else 0.0
+        if not (pred & gold):
+            return 0.0
+        return 0.5 + 0.5 * min(1.0, SINGLE_SYMBOL_PRECISION / max(len(pred), 1))   # v2: found it -> at least 0.5; noise costs the other half
     return f1(pred, gold)
 
 
@@ -148,6 +159,8 @@ def uses_judge(task: Task) -> bool:
     has_material = bool(g.rubric or g.reference_answer)
     if task.task_type in ("trace", "explain"):
         return has_material
+    if task.source == "deepcodebench" and g.rubric:
+        return True        # 2026-09-20: the dataset's expected_paths can name the CALL site (graphiti fulltext index); its rubric is the better gold
     return has_material and not g.is_verifiable
 
 

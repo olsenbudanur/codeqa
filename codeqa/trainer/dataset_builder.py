@@ -122,7 +122,7 @@ class CodeQAGroupBuilder(EnvGroupBuilder):
         penalties = [no_answer_penalty(t.stats.stop_reason, r.gate_failed) for t, r in zip(traces, results)]
         credits = [0.0 if math.isnan(r.reward) else grounded_credit(r.reward, r.gate_failed, self.grounded_credit) for r in results]
         budget = self.task.effective_budget()
-        lengths = [gates.length_factor(gates.extract_answer(t), budget) if self.length_shaping else 1.0 for t in traces]
+        lengths = [gates.length_factor(gates.extract_answer(t), budget, self.task.task_type) if self.length_shaping else 1.0 for t in traces]
         # shaped = (grader reward + grounded credit) x length factor + stall penalty; the grader's reward stays length-free
         rewards = [(nan_safe(r.reward) + c) * lf + p for r, p, c, lf in zip(results, penalties, credits, lengths)]
         errored = [math.isnan(r.reward) for r in results]
@@ -199,22 +199,33 @@ def load_tasks(path: Path, max_tasks: int | None = None, seed: int = 0, shuffle:
     return ok[:max_tasks] if max_tasks else ok
 
 
-def stratified_order(tasks: list[Task]) -> list[Task]:
-    """Proportional interleave over task types (each type's own order preserved): every batch reflects the global
-    type mix instead of the draw. At each step the type furthest behind its share goes next (Bresenham-style)."""
-    from collections import defaultdict
-    by: dict[str, list[Task]] = defaultdict(list)
-    for t in tasks:
-        by[t.task_type].append(t)
-    total = {k: len(v) for k, v in by.items()}
-    taken = {k: 0 for k in by}
-    out: list[Task] = []
-    n = len(tasks)
-    for _ in range(n):
-        k = min((k for k in by if taken[k] < total[k]), key=lambda k: (taken[k] + 1) / total[k])
-        out.append(by[k][taken[k]])
+def _interleave(groups: dict[str, list]) -> list:
+    """Proportional (Bresenham-style) interleave: at each step the group furthest behind its share goes next."""
+    total = {k: len(v) for k, v in groups.items() if v}
+    taken = {k: 0 for k in total}
+    out: list = []
+    for _ in range(sum(total.values())):
+        k = min((k for k in total if taken[k] < total[k]), key=lambda k: (taken[k] + 1) / total[k])
+        out.append(groups[k][taken[k]])
         taken[k] += 1
     return out
+
+
+def stratified_order(tasks: list[Task]) -> list[Task]:
+    """Two-level stratification so every batch has the global TASK-TYPE mix and, within a type, spreads REPOS
+    (repo is the largest difficulty factor: 8 % pass on xgboost vs 93 % on fastai in p4_bash). Each type's own
+    order is a repo-proportional interleave; the types are then interleaved proportionally."""
+    from collections import defaultdict
+    by_type: dict[str, list[Task]] = defaultdict(list)
+    for t in tasks:
+        by_type[t.task_type].append(t)
+    per_type: dict[str, list[Task]] = {}
+    for tt, ts in by_type.items():
+        by_repo: dict[str, list[Task]] = defaultdict(list)
+        for t in ts:
+            by_repo[t.repo_id].append(t)
+        per_type[tt] = _interleave(dict(sorted(by_repo.items())))
+    return _interleave(dict(sorted(per_type.items())))
 
 
 def builders_for(tasks: list[Task], profile_name: str, group_size: int, variant: str, judge_model: str | None,

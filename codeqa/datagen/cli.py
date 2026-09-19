@@ -17,7 +17,8 @@ from codeqa.shared import paths
 def cmd_import(args: argparse.Namespace) -> int:
     from codeqa.datagen import importers
     sources = ["deepcodebench", "sweqa", "codeqabench"] if args.source == "all" else [args.source]
-    fns = {"deepcodebench": importers.import_deepcodebench, "sweqa": importers.import_sweqa, "codeqabench": importers.import_codeqabench}
+    fns = {"deepcodebench": importers.import_deepcodebench, "sweqa": lambda: importers.import_sweqa(rubrics=not args.no_rubrics),
+           "codeqabench": importers.import_codeqabench}
     for s in sources:
         print(f"== import {s}", flush=True)
         rep = fns[s]()
@@ -57,7 +58,8 @@ def cmd_filter(args: argparse.Namespace) -> int:
 
 def cmd_split(args: argparse.Namespace) -> int:
     from codeqa.datagen import split
-    rep = split.build(lo=args.lo, hi=args.hi, per_repo_cap=args.per_repo_cap, keep_unmeasured=args.keep_unmeasured, refresh_fast=args.refresh_fast)
+    rep = split.build(lo=args.lo, hi=args.hi, per_repo_cap=args.per_repo_cap, keep_unmeasured=args.keep_unmeasured, refresh_fast=args.refresh_fast,
+                      keep_references=args.keep_references)
     print(json.dumps(rep, indent=1), flush=True)
     return 0
 
@@ -70,6 +72,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("import", help="import DeepCodeBench / SWE-QA into C5 files")
     p.add_argument("--source", choices=["deepcodebench", "sweqa", "codeqabench", "all"], default="all")
+    p.add_argument("--no-rubrics", action="store_true", help="sweqa: skip the one-time Sonnet rubric derivation (offline)")
     p.set_defaults(fn=cmd_import)
     p = sub.add_parser("derive", help="derive CodeScout locate tasks (snapshot repos, resolve gold, Haiku rewrite)")
     p.add_argument("--source", choices=["codescout"], default="codescout")
@@ -107,6 +110,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--per-repo-cap", type=int, default=120)
     p.add_argument("--keep-unmeasured", action="store_true")
     p.add_argument("--refresh-fast", action="store_true", help="resample eval/fast.jsonl instead of keeping its current ids")
+    p.add_argument("--keep-references", action="store_true", help="keep reference_answer on non-teacher train records (default: stripped; unused by the reward)")
     p.set_defaults(fn=cmd_split)
     args = ap.parse_args(argv)
     return args.fn(args)

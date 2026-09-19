@@ -43,7 +43,7 @@ def test_b3_call_site_citation_supports_gold_callees(repo):
 def test_b4_precision_guard_on_single_gold(repo):
     rep = check_citations(f"[{S}:L1-L48]", [Span(path=S, start=1, end=48)], repo.repo_id, repo=repo)
     shotgun = "SessionExpired Session is_expired create_session validate_session expire_session"
-    assert symbol_score(shotgun, rep, [f"{S}:validate_session"], repo) == pytest.approx(0.5)
+    assert symbol_score(shotgun, rep, [f"{S}:validate_session"], repo) == pytest.approx(0.75)   # v2: hit -> 0.5 floor, precision scales the rest (6 named -> 3/6)
     assert symbol_score("validate_session", rep, [f"{S}:validate_session"], repo) == 1.0
     assert path_score({"a.py", "b.py", "c.py", "d.py"}, ["a.py"], repo) == pytest.approx(0.5)
     assert path_score({"a.py", "b.py"}, ["a.py"], repo) == 1.0

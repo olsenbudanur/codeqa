@@ -24,14 +24,10 @@ def repo_id_of(row: dict[str, Any]) -> str:
 
 
 def infer_type(question: str) -> str:
-    q = question.lower()
-    if q.startswith(("where", "which file", "in which file", "which module")):
-        return "locate"
-    if q.startswith(("what is the default", "what value", "what scaling", "what number", "which internal attribute", "what is the value")):
-        return "value"
-    if q.startswith(("which", "what are the", "list")):
-        return "enumerate"
-    return "explain"
+    """Judged types only (2026-09-20). Every row carries a facts rubric written with the file in view; the paths regexed
+    from the answer are evidence, not a complete gold set, and the old first-word guess sent 66 train + 5 fast rows to
+    path-F1 (the three broken fast rows of 2026-09-18 were this). `how` -> trace, everything else -> explain."""
+    return "trace" if question.strip().lower().startswith("how") else "explain"
 
 
 # Row-level corrections found in review (LOG 2026-09-18 22:10). Applied at import so re-runs keep them.

@@ -43,8 +43,10 @@ def parse_repo_commits(text: str) -> dict[str, str]:
 
 
 def infer_type(question: str) -> str:
+    """Judged types only (2026-09-20): SWE-QA answers are prose with a reference; the paths we regex out of them are
+    evidence, not a complete gold set, so path-F1 under-grades. `how` -> trace, everything else -> explain."""
     w = question.strip().split()[0].lower() if question.strip() else ""
-    return {"where": "locate", "what": "explain", "why": "explain", "how": "explain"}.get(w, "explain")
+    return "trace" if w == "how" else "explain"
 
 
 def extract_citations(answer: str) -> list[Span]:

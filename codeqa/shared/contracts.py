@@ -149,7 +149,12 @@ class Task(BaseModel):
         return v
 
     def effective_budget(self) -> Budget:
-        return self.budget or DEFAULT_BUDGETS[self.task_type]
+        import os
+        b = self.budget or DEFAULT_BUDGETS[self.task_type]
+        calls = os.environ.get("CODEQA_CAPS_CALLS")                      # experiment knob: same call cap for every type
+        if calls:
+            b = Budget(max_tool_calls=int(calls), max_turns=int(calls) + 2, max_answer_tokens=b.max_answer_tokens)
+        return b
 
 
 # ---------------------------------------------------------------------------
