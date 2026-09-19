@@ -1,0 +1,21 @@
+# Installed by bootstrap.sh / update.sh with __HOST__ replaced. Auto-HTTPS via Let's Encrypt.
+# Access control is the app's own shared password (CODEQA_PASSWORD in .env), checked by the API on every request.
+__HOST__ {
+	encode gzip
+	handle_path /api/* {
+		reverse_proxy 127.0.0.1:8000 {
+			flush_interval -1
+		}
+	}
+	handle {
+		root * /opt/codeqa/apps/web/dist
+		try_files {path} /index.html
+		file_server
+	}
+	log {
+		output file /var/log/caddy/access.log
+	}
+}
+www.__HOST__ {
+	redir https://__HOST__{uri} permanent
+}
