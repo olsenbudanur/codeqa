@@ -61,7 +61,7 @@ _CKPT_RE = re.compile(r"^qwen4b-(?P<run>[A-Za-z0-9_.\-]+)-step(?P<step>\d+|final
 
 
 SECOND_ORG_RUN_PREFIXES = ("p4_", "p5_", "p6_")      # runs trained in the second Tinker org (their samplers need TINKER_API_KEY_NEW)
-DEFAULT_PROFILE = os.environ.get("CODEQA_DEFAULT_PROFILE", "qwen4b-p6_full-step12")   # what the product's model picker opens on
+DEFAULT_PROFILE = os.environ.get("CODEQA_DEFAULT_PROFILE", "qwen4b-p6_bash_v3-step24")   # best held-out so far (0.587 / 87 %, bash harness)   # what the product's model picker opens on
 
 
 def checkpoint_profiles() -> dict[str, EndpointProfile]:

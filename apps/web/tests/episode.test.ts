@@ -57,3 +57,15 @@ describe('rounds (bash_v3)', () => {
     expect(ep.stats?.forced_answer).toBe(true)
   })
 })
+
+describe('groupRounds', () => {
+  it('folds consecutive same-turn calls into one round and leaves single calls alone', async () => {
+    const { groupRounds } = await import('../src/state/episode')
+    let ep = episodeReducer(emptyEpisode, { type: 'start', question: 'q', repoId: 'r', profile: 'p' })
+    for (const [turn, cmd] of [[1, 'ls'], [1, 'grep a'], [1, 'grep b'], [2, 'cat x']] as [number, string][])
+      ep = episodeReducer(ep, { type: 'event', event: { type: 'tool_call', name: 'bash', args: { command: cmd }, turn } })
+    const g = groupRounds(ep.rows)
+    expect(g.map((r) => r.kind)).toEqual(['round', 'call'])
+    expect(g[0].kind === 'round' && g[0].rows.length).toBe(3)
+  })
+})

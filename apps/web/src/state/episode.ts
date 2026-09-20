@@ -143,3 +143,22 @@ export function filesTouched(rows: LogRow[]): string[] {
   }
   return [...seen]
 }
+
+
+// Rounds (bash_v3): consecutive call rows from the same assistant turn, two or more, fold into one group so a
+// message with four commands reads as one step until expanded.
+export type RoundGroup = { kind: 'round'; turn: number; rows: ToolRow[] }
+export type GroupedRow = LogRow | RoundGroup
+
+export function groupRounds(rows: LogRow[]): GroupedRow[] {
+  const out: GroupedRow[] = []
+  for (const r of rows) {
+    const last = out[out.length - 1]
+    if (r.kind === 'call' && r.turn !== undefined) {
+      if (last && last.kind === 'round' && last.turn === r.turn) { last.rows.push(r); continue }
+      if (last && last.kind === 'call' && last.turn === r.turn) { out[out.length - 1] = { kind: 'round', turn: r.turn, rows: [last, r] }; continue }
+    }
+    out.push(r)
+  }
+  return out
+}

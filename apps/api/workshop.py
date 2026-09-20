@@ -151,6 +151,12 @@ def _own_metrics(name: str) -> list[dict[str, Any]]:
             keep = {k: v for k, v in r.items() if k == "step" or k.startswith(METRIC_PREFIXES)}
             keep = {k: (None if isinstance(v, float) and not math.isfinite(v) else v) for k, v in keep.items()}
             rows.append(keep)
+        # a preempted-and-resumed run re-appends the steps it redid (Modal restarts the function; the trainer resumes from the
+        # last checkpoint): keep the LAST row per (step, kind) so the chart shows each step once (2026-09-20 17:10, p6_bash_v4)
+        seen: dict[tuple[int, bool], int] = {}
+        for i, r in enumerate(rows):
+            seen[(int(r.get("step", i)), any(k.startswith("env/") for k in r))] = i
+        rows = [r for i, r in enumerate(rows) if seen[(int(r.get("step", i)), any(k.startswith("env/") for k in r))] == i]
         if rows and fe:     # the final eval measures the checkpoint AFTER the last step: x = steps completed, like the in-loop points (0, 8, ...)
             extra: dict[str, Any] = {"step": int(rows[-1].get("step", len(rows) - 1)) + 1, "eval/fast/final_t02": 1.0}
             for src, dst in (("reward", "reward"), ("correct_rate", "correct"), ("tool_calls", "tool_calls"), ("prompt_tokens", "prompt_tokens"),

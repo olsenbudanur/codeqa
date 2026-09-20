@@ -4,7 +4,7 @@ import { Dots } from '@/components/working'
 import { ThinkingBlock, ThinkingToggleAll } from '@/components/research/thinking-block'
 import type { Span } from '@/lib/contracts'
 import { cn } from '@/lib/utils'
-import type { Episode, LogRow, ToolRow } from '@/state/episode'
+import { groupRounds, type Episode, type LogRow, type ToolRow } from '@/state/episode'
 import { AnswerPanel } from '@/components/answer/answer-panel'
 import { Wordmark } from '@/components/wordmark'
 
@@ -146,7 +146,8 @@ function Activity({ rows, running, onOpen, className }: { rows: LogRow[]; runnin
           Reading the question
         </li>
       )}
-      {rows.map((r) => {
+      {groupRounds(rows).map((r) => {
+        if (r.kind === 'round') return <RoundLine key={`round-${r.turn}`} turn={r.turn} rows={r.rows} running={running} onOpen={onOpen} />
         if (r.kind === 'thinking') {
           return (
             <li key={r.id} className="row-in pl-[22px]">
@@ -162,27 +163,56 @@ function Activity({ rows, running, onOpen, className }: { rows: LogRow[]; runnin
             </li>
           )
         }
-        const d = describe(r)
-        const pending = !r.result
-        return (
-          <li key={r.id} className="row-in flex items-start gap-2 text-[13px] leading-5">
-            <Dot pending={pending} running={running} />
-            <span className="min-w-0">
-              {d.code !== undefined ? (
-                <span>{d.text} <code className="rounded bg-muted px-1 py-0.5 font-mono text-[12px] break-all">{d.code}</code></span>
-              ) : d.span ? (
-                <button type="button" onClick={() => onOpen(d.span!)} className="text-left underline-offset-2 hover:underline">
-                  {d.text}
-                </button>
-              ) : (
-                <span>{d.text}</span>
-              )}
-              {r.result && <span className="ml-2 font-mono text-[11.5px] text-muted-foreground">{resultNote(r)}</span>}
-            </span>
-          </li>
-        )
+        return <CallLine key={r.id} r={r} running={running} onOpen={onOpen} />
       })}
     </ol>
+  )
+}
+
+function CallLine({ r, running, onOpen }: { r: ToolRow; running: boolean; onOpen: (s: Span) => void }) {
+  const d = describe(r)
+  const pending = !r.result
+  return (
+    <li className="row-in flex items-start gap-2 text-[13px] leading-5">
+      <Dot pending={pending} running={running} />
+      <span className="min-w-0">
+        {d.code !== undefined ? (
+          <span>{d.text} <code className="rounded bg-muted px-1 py-0.5 font-mono text-[12px] break-all">{d.code}</code></span>
+        ) : d.span ? (
+          <button type="button" onClick={() => onOpen(d.span!)} className="text-left underline-offset-2 hover:underline">
+            {d.text}
+          </button>
+        ) : (
+          <span>{d.text}</span>
+        )}
+        {r.result && <span className="ml-2 font-mono text-[11.5px] text-muted-foreground">{resultNote(r)}</span>}
+      </span>
+    </li>
+  )
+}
+
+// A message with several commands: one line ("Ran 4 commands") until expanded.
+function RoundLine({ turn, rows, running, onOpen }: { turn: number; rows: ToolRow[]; running: boolean; onOpen: (s: Span) => void }) {
+  const [open, setOpen] = useState(false)
+  const done = rows.filter((r) => r.result).length
+  const pending = done < rows.length
+  return (
+    <li className="row-in text-[13px] leading-5">
+      <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} className="flex w-full items-start gap-2 text-left">
+        <Dot pending={pending} running={running} />
+        <span className="min-w-0 flex-1">
+          {pending ? 'Running' : 'Ran'} {rows.length} commands
+          <span className="ml-2 font-mono text-[11.5px] text-muted-foreground">round {turn}{pending ? `, ${done} of ${rows.length} done` : ''}</span>
+          {!open && <span className="block truncate font-mono text-[11.5px] text-muted-foreground">{rows.map((r) => String(r.args.command ?? r.name)).join('  ·  ')}</span>}
+        </span>
+        <ChevronRight className={cn('mt-[3px] size-3.5 shrink-0 text-muted-foreground transition-transform', open && 'rotate-90')} aria-hidden />
+      </button>
+      {open && (
+        <ol className="mt-1.5 space-y-1.5 border-l pl-3 ml-[7px]">
+          {rows.map((r) => <CallLine key={r.id} r={r} running={running} onOpen={onOpen} />)}
+        </ol>
+      )}
+    </li>
   )
 }
 

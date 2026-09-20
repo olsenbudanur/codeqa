@@ -144,7 +144,8 @@ def _bwrap_argv(cwd: Path) -> list[str]:
     for d in ("/usr", "/lib", "/lib64", "/bin", str(cwd), str(allowlist_dir())):
         if Path(d).exists():
             binds += ["--ro-bind", d, d]
-    return [BWRAP, "--unshare-all", "--die-with-parent", *binds, "--tmpfs", "/tmp", "--proc", "/proc", "--dev", "/dev",
+    # tmpfs/proc/dev first, binds after: bwrap applies mounts in argv order, so a cwd under /tmp stays visible.
+    return [BWRAP, "--unshare-all", "--die-with-parent", "--tmpfs", "/tmp", "--proc", "/proc", "--dev", "/dev", *binds,
             "--chdir", str(cwd)]
 
 

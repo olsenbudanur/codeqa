@@ -1,9 +1,10 @@
 import { useState } from 'react'
-import { Check } from 'lucide-react'
+import { Check, ChevronRight } from 'lucide-react'
 import { BracketSpinner, Dots } from '@/components/working'
 import { ThinkingBlock, ThinkingToggleAll } from './thinking-block'
-import type { LogRow, ToolRow } from '@/state/episode'
+import { groupRounds, type LogRow, type ToolRow } from '@/state/episode'
 import type { Span } from '@/lib/contracts'
+import { cn } from '@/lib/utils'
 
 // One sentence per tool call, written as what the agent is doing.
 function describeCall(r: ToolRow): { verb: string; span?: Span; code?: string } {
@@ -36,13 +37,6 @@ function describeCall(r: ToolRow): { verb: string; span?: Span; code?: string } 
   }
 }
 
-// Rounds (bash_v3): one assistant turn can carry several commands. Call rows carry the turn they came from; when any
-// turn has more than one call, the ledger shows a divider per turn so the round structure is visible.
-function roundsOf(rows: LogRow[]): Map<number, number> | null {
-  const perTurn = new Map<number, number>()
-  for (const r of rows) if (r.kind === 'call' && r.turn !== undefined) perTurn.set(r.turn, (perTurn.get(r.turn) ?? 0) + 1)
-  return [...perTurn.values()].some((n) => n > 1) ? perTurn : null
-}
 
 const fmt = new Intl.NumberFormat('en-US')
 
@@ -80,7 +74,6 @@ export function Ledger({
 }) {
   const calls = rows.filter((r): r is ToolRow => r.kind === 'call')
   const total = callCount ?? calls.length
-  const rounds = roundsOf(rows)
   const thoughts = rows.filter((r) => r.kind === 'thinking').length
   const [allOpen, setAllOpen] = useState(false)
   const [openIds, setOpenIds] = useState<Set<number>>(new Set())
@@ -98,7 +91,11 @@ export function Ledger({
       </header>
       )}
       <ol className={compact ? '' : 'border-t'}>
-        {rows.map((r, i) => {
+        {groupRounds(rows).map((r) => {
+          if (r.kind === 'round')
+            return (
+              <RoundView key={`round-${r.turn}`} turn={r.turn} rows={r.rows} firstStep={startStep + calls.indexOf(r.rows[0])} running={running} compact={compact} onOpen={onOpen} />
+            )
           if (r.kind === 'thinking')
             return (
               <li key={r.id} className="row-in border-b py-2">
@@ -115,12 +112,7 @@ export function Ledger({
           const step = startStep + calls.indexOf(r)
           const d = describeCall(r)
           const pending = !r.result
-          const prev = rows.slice(0, i).reverse().find((x): x is ToolRow => x.kind === 'call')
-          const newRound = rounds !== null && r.turn !== undefined && prev?.turn !== r.turn
-          return (
-            <ToolRowView key={r.id} r={r} step={step} pending={pending} running={running} compact={compact} d={d} onOpen={onOpen}
-              round={newRound ? { turn: r.turn!, commands: rounds!.get(r.turn!) ?? 1 } : undefined} />
-          )
+          return <ToolRowView key={r.id} r={r} step={step} pending={pending} running={running} compact={compact} d={d} onOpen={onOpen} />
         })}
         {running && rows.length === 0 && (
           <li className="flex items-center gap-2 py-2.5 text-sm text-muted-foreground"><BracketSpinner />Reading the question</li>
@@ -130,17 +122,46 @@ export function Ledger({
   )
 }
 
-function ToolRowView({ r, step, pending, running, compact, d, onOpen, round }: { r: ToolRow; step: number; pending: boolean; running: boolean; compact?: boolean; d: { verb: string; span?: Span; code?: string }; onOpen: (span: Span) => void; round?: { turn: number; commands: number } }) {
+// One message that carried several commands: a single row until expanded (the round is the unit the model acted in).
+function RoundView({ turn, rows, firstStep, running, compact, onOpen }: { turn: number; rows: ToolRow[]; firstStep: number; running: boolean; compact?: boolean; onOpen: (span: Span) => void }) {
+  const [open, setOpen] = useState(false)
+  const done = rows.filter((r) => r.result).length
+  const pending = done < rows.length
+  const errors = rows.filter((r) => r.result?.summary.startsWith('ERROR')).length
+  const preview = rows.map((r) => describeCall(r).code ?? describeCall(r).verb).join('  ·  ')
+  return (
+    <li className="row-in border-b py-2.5">
+      <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} className="grid w-full grid-cols-[1.5rem_minmax(0,1fr)_auto] gap-x-2 text-left">
+        <span className="pt-px font-mono text-xs text-muted-foreground tabular-nums">{firstStep}–{firstStep + rows.length - 1}</span>
+        <span className="min-w-0">
+          <span className="flex items-center gap-1.5 text-sm">
+            <ChevronRight className={cn('size-3.5 shrink-0 text-muted-foreground transition-transform', open && 'rotate-90')} aria-hidden />
+            Ran {rows.length} commands in one message
+            <span className="rounded border px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">round {turn}</span>
+          </span>
+          {!open && <span className="mt-0.5 block truncate pl-5 font-mono text-[11.5px] text-muted-foreground" title={preview}>{preview}</span>}
+        </span>
+        <span className="pt-px text-right font-mono text-xs text-muted-foreground tabular-nums">
+          {pending ? (running ? <span className="inline-flex items-center gap-1.5">{done} of {rows.length}<Dots className="text-verified" /></span> : `${done} of ${rows.length}`)
+            : compact ? <Check className="size-3.5 text-verified" strokeWidth={3} aria-label="Done" /> : errors ? `${errors} error${errors > 1 ? 's' : ''}` : 'done'}
+        </span>
+      </button>
+      {open && (
+        <ol className="mt-2 border-l pl-3">
+          {rows.map((r, i) => (
+            <ToolRowView key={r.id} r={r} step={firstStep + i} pending={!r.result} running={running} compact={compact} d={describeCall(r)} onOpen={onOpen} />
+          ))}
+        </ol>
+      )}
+    </li>
+  )
+}
+
+function ToolRowView({ r, step, pending, running, compact, d, onOpen }: { r: ToolRow; step: number; pending: boolean; running: boolean; compact?: boolean; d: { verb: string; span?: Span; code?: string }; onOpen: (span: Span) => void }) {
   const [open, setOpen] = useState(false)
   const expandable = !!r.result?.text
   return (
-    <li className="row-in border-b py-2.5">
-            {round && (
-              <div className="mb-1.5 flex items-center gap-2 font-mono text-[11px] text-muted-foreground">
-                <span className="rounded border px-1.5 py-0.5">round {round.turn}</span>
-                <span>{round.commands} {round.commands === 1 ? 'command' : 'commands'} in one message</span>
-              </div>
-            )}
+    <li className="row-in border-b py-2.5 last:border-0">
             <div className="grid grid-cols-[1.5rem_minmax(0,1fr)_auto] gap-x-2">
               <span className="pt-px font-mono text-xs text-muted-foreground tabular-nums">{step}</span>
               <div className="min-w-0">

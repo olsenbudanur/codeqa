@@ -30,6 +30,10 @@ class RepoEnv:
         self.budget: Budget = task.effective_budget()
         # explicit arg > the profile's own variant (a checkpoint is served with what it trained on) > CODEQA_AGENT_VARIANT > default
         self.variant: AgentVariant = resolve(variant or profile.variant)
+        if self.variant.name == "bash_v3" and not self.budget.rounds_mode:      # served outside the trainer: the harness the checkpoint trained with
+            from codeqa.shared.contracts import UNLIMITED_CALLS
+            self.budget = Budget(max_tool_calls=UNLIMITED_CALLS, max_turns=16, max_answer_tokens=self.budget.max_answer_tokens,
+                                 max_context_tokens=48000, max_commands_per_turn=4)
         self.tools_obj = RepoTools(task.repo_id, max_tool_calls=self.budget.max_tool_calls, caps=caps)
         self.repo_map = repo_map_text(task.repo_id, self.variant)   # '' | ~1k structural tree | summarised map.txt
 
