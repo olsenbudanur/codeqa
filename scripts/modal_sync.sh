@@ -50,5 +50,25 @@ PY
   fi
 done
 modal volume get codeqa-data /profiles.yaml "$DEST/profiles.modal.yaml" --force >/dev/null 2>&1 || true
+# `modal volume get` stamps every file with the download time, which breaks the workshop's "updated" ordering (it reads
+# the mtime of metrics.jsonl / config.json). Restore those two mtimes per run from the volume listing (minute precision).
+python3 - "$DEST" <<'PY'
+import json, os, subprocess, sys, pathlib
+from datetime import datetime, timedelta, timezone
+dest = pathlib.Path(sys.argv[1]); TZ = {"PDT": -7, "PST": -8, "UTC": 0, "EDT": -4, "EST": -5}
+def parse(s):
+    d, t, z = s.split(); dt = datetime.strptime(d + " " + t, "%Y-%m-%d %H:%M")
+    return dt.replace(tzinfo=timezone(timedelta(hours=TZ.get(z, 0)))).timestamp()
+fixed = 0
+for run in sorted(p for p in (dest / "logs").iterdir() if p.is_dir()) if (dest / "logs").exists() else []:
+    try: rows = json.loads(subprocess.run(["modal", "volume", "ls", "--json", "codeqa-data", f"logs/{run.name}"], capture_output=True, text=True, timeout=60).stdout)
+    except Exception: continue
+    for r in rows:
+        name = r["filename"].rsplit("/", 1)[-1]
+        if name in ("metrics.jsonl", "config.json") and (run / name).exists():
+            try: ts = parse(r["created_modified"]); os.utime(run / name, (ts, ts)); fixed += 1
+            except Exception: pass
+print(f"restored {fixed} run mtimes from the volume listing")
+PY
 rm -rf "$STAGE"
 echo "synced into $DEST; volume profiles at $DEST/profiles.modal.yaml (merge new checkpoints into ./profiles.yaml by hand)"
