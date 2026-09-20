@@ -96,7 +96,8 @@ def checkpoint_profiles() -> dict[str, EndpointProfile]:
 def run_variant(run: str, cfg: dict[str, Any]) -> str | None:
     """The agent a run trained with: `runs.json` (the lead's titles file) first, then config.json. A checkpoint must be
     served with the tools, prompt and budget it trained on; None = the default variant."""
-    v = (run_titles().get(run) or {}).get("variant") or cfg.get("variant")
+    meta = run_titles().get(run)
+    v = (meta.get("variant") if isinstance(meta, dict) else None) or cfg.get("variant")   # runs.json may hold a plain string note
     return v if v and v != "none" else None
 
 
