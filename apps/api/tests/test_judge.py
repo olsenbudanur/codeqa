@@ -51,7 +51,9 @@ def test_judge_streams_research_then_one_verdict_per_candidate(client: TestClien
         frames = read_sse(r.read().decode())
     types = [f["type"] for f in frames]
     assert types[0] == "phase" and frames[0]["phase"] == "research"
-    assert [f["event"]["type"] for f in frames if f["type"] == "ref"] == ["thinking", "tool_call", "tool_result", "answer", "stats"]
+    assert [f["event"]["type"] for f in frames if f["type"] == "ref"] == ["thinking", "tool_call", "tool_result", "answer", "stats", "citations"]
+    cits = next(f["event"] for f in frames if f["type"] == "ref" and f["event"]["type"] == "citations")
+    assert [(c["start"], c["verified"]) for c in cits["items"]] == [(2, True), (9, False)]   # read lines 1-5: L2-L3 grounded, L9 not
     judging = next(f for f in frames if f["type"] == "phase" and f["phase"] == "judging")
     assert judging["reference"].startswith("Line two") and judging["ref_calls"] == 1
     verdicts = sorted((f for f in frames if f["type"] == "verdict"), key=lambda f: f["index"])

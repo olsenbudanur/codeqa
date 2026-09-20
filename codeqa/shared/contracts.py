@@ -166,6 +166,8 @@ class Task(BaseModel):
         if calls:
             b = Budget(max_tool_calls=int(calls), max_turns=int(calls) + 2, max_answer_tokens=b.max_answer_tokens)
         ctx = os.environ.get("CODEQA_CAPS_CONTEXT")                      # v3: context cap (prompt tokens) + message cap, no call cap
+        if not ctx and os.environ.get("CODEQA_AGENT_VARIANT") == "bash_v3":   # the variant's own caps, so env, grader and evals agree
+            ctx = "48000"                                                   # (2026-09-20: a CLI eval without the caps failed 32/60 on the budget gate)
         if ctx:
             b = Budget(max_tool_calls=UNLIMITED_CALLS, max_turns=int(os.environ.get("CODEQA_CAPS_MESSAGES", "24")),
                        max_answer_tokens=b.max_answer_tokens, max_context_tokens=int(ctx),

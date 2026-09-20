@@ -64,7 +64,8 @@ export function Compare() {
     api.listProfiles().then((p) => {
       setProfiles(p)
       const base = p.find((x) => x.kind === 'tinker' && /untrained/i.test(x.label ?? '')) ?? p[0]
-      const trained = [...p].reverse().find((x) => x.kind === 'tinker' && /trained$/i.test(x.label ?? '')) ?? p[p.length - 1]
+      // the second column opens on the product's default model (Scholia), else the last trained checkpoint
+      const trained = p.find((x) => x.default) ?? [...p].reverse().find((x) => x.kind === 'tinker' && /trained$/i.test(x.note ?? '')) ?? p[p.length - 1]
       setCols((cur) => cur.map((c, i) => c || (i === 0 ? base?.name : trained?.name) || p[0]?.name || ''))
     }).catch((e: Error) => toast.error(e.message))
   }, [])
@@ -284,6 +285,32 @@ export function Compare() {
                             )}
                           </>
                         )}
+                        {(() => {
+                          const g = ref.grades[i]
+                          if (!g || g.error || !g.items) return null
+                          const n = g.items.length
+                          const ok = g.satisfied?.filter(Boolean).length ?? 0
+                          return (
+                            <details className="mt-3 border-t pt-2 text-[12px]">
+                              <summary className="cursor-pointer font-mono text-[11.5px] text-muted-foreground">
+                                grader: {ok} of {n} reference facts stated{typeof g.score === 'number' ? ` (${Math.round(g.score * 100)}%)` : ''}
+                              </summary>
+                              <ul className="mt-1.5 space-y-1">
+                                {g.items.map((it, k) => {
+                                  const sat = g.satisfied?.[k]
+                                  const con = g.contradicted?.[k]
+                                  return (
+                                    <li key={k} className={cn('flex items-start gap-1.5', sat ? 'text-foreground' : 'text-muted-foreground')}>
+                                      <span className={cn('mt-0.5 shrink-0 font-mono', con ? 'text-destructive' : sat ? 'text-verified' : '')}>{con ? '✕' : sat ? '✓' : '–'}</span>
+                                      <span>{it}</span>
+                                    </li>
+                                  )
+                                })}
+                              </ul>
+                              <p className="mt-1.5 text-[11px] text-muted-foreground">Facts are derived from the referee's answer, so this measures agreement with Opus's research, not ground truth.</p>
+                            </details>
+                          )
+                        })()}
                       </article>
                     )
                   })}

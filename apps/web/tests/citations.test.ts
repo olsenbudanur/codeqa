@@ -32,3 +32,13 @@ describe('attachSources', () => {
     expect([...r.attached]).toEqual(['setup.py:44-44'])
   })
 })
+
+describe('linkifyCitations and code', () => {
+  it('does not turn a citation quoted inside a code span or fence into a link', () => {
+    const md = 'Cite as `[path:L10-L20]`. Real: [a.py:L1-L2].\n```\n[b.py:L3]\n```'
+    const out = linkifyCitations(md)
+    expect(out).toContain('`[path:L10-L20]`')
+    expect(out).toContain('[a.py:L1-L2](cite:a.py:1:2)')
+    expect(out).toContain('\n[b.py:L3]\n')
+  })
+})

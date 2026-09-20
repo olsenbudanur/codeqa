@@ -310,9 +310,15 @@ class RepoTools:
                                              "Show line numbers for anything you will cite: grep -rn PATTERN DIR, or nl -ba FILE | sed -n 'A,Bp'."]) -> ToolResult:
         """Run one read-only shell command in the repo root (ls, find, grep -n, nl, sed -n, head, tail, wc). No writes, no cd, no .. or absolute paths."""
         from codeqa.agent import shell
+        # The snapshot's own `manifest.json` (indexing metadata) sits in the shell's cwd. It is not a repository file:
+        # the grader marks any citation of it fabricated, so the shell must not show it either (2026-09-20, LOG 18:30).
+        metadata = [n for n in shell.METADATA_FILES if n not in self._paths]
+        if err := shell.metadata_precheck(str(command or ""), metadata):
+            return self._finish(f"ERROR {err}", error=True)
         out, err = await shell.run(str(command or ""), cwd=self.root, repo_id=self.repo_id)
         if err:
             return self._finish(f"ERROR {err}", error=True)
+        out = shell.hide_metadata(out, metadata)
         if not out.strip():
             out = "(no output)"
         self.files_read.extend(shell.seen_spans(str(command), out, self._lines))

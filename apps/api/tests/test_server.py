@@ -166,7 +166,7 @@ def test_checkpoint_profiles_are_listed_and_askable(client: TestClient, monkeypa
     monkeypatch.setattr(server, "checkpoint_profiles", lambda: {"qwen4b-r9-step2": server.EndpointProfile(name="qwen4b-r9-step2", kind="tinker", model="tinker://x/sampler_weights/000002", base_model="Qwen/Qwen3.5-4B", renderer="qwen3_5")})
     rows = client.get("/profiles").json()
     ck = next(r for r in rows if r["name"] == "qwen4b-r9-step2")
-    assert ck["source"] == "checkpoints" and ck["label"] == "Qwen3.5-4B, trained" and "checkpoint" in ck["note"]
+    assert ck["source"] == "checkpoints" and ck["label"] == "r9 step 2" and "checkpoint" in ck["note"]
     assert client.post("/ask", json={"repo_id": REPO_ID, "question": "q", "profile": "qwen4b-r9-step2"}).status_code == 200
 
 

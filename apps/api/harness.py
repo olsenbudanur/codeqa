@@ -20,13 +20,57 @@ def is_v3(profile: EndpointProfile, variant: str | None = None) -> bool:
     return (variant or profile.variant or "") in V3_VARIANTS
 
 
+def _run_of_sampler(model_path: str) -> str | None:
+    """Which run produced a tinker:// sampler path (from data/logs/<run>/checkpoints.jsonl); None for base models."""
+    import time
+    from apps.api.workshop import read_jsonl
+    from codeqa.shared import paths
+    if not model_path.startswith("tinker://") or not paths.LOGS.exists():
+        return None
+    now = time.time()
+    if now - _sampler_runs["at"] > 30:   # checkpoints.jsonl rows are appended inside existing run dirs, so rescan by time
+        out: dict[str, str] = {}
+        for run in paths.LOGS.iterdir():
+            for r in read_jsonl(run / "checkpoints.jsonl"):
+                if r.get("sampler_path"):
+                    out[r["sampler_path"]] = run.name
+        _sampler_runs.update(at=now, map=out)
+    return _sampler_runs["map"].get(model_path)
+
+
+_sampler_runs: dict[str, Any] = {"at": 0.0, "map": {}}
+
+
+def run_caps(run: str | None) -> dict[str, int]:
+    """The round-harness caps a run trained with. Arms record them as env vars in `scripts/arm.py` (`CODEQA_CAPS_*`);
+    the run name is `<phase>_<arm>` (p6_bash_v4 -> bash_v4). Falls back to the process defaults (v3: 32k / 24 / 4)."""
+    caps = {"context": V3_CONTEXT_TOKENS, "messages": V3_MESSAGES, "commands": V3_COMMANDS}
+    if not run:
+        return caps
+    try:
+        from scripts.arm import ARMS   # the experiment table, not core code; guarded so the API runs without it
+    except Exception:  # noqa: BLE001
+        return caps
+    arm = run.split("_", 1)[1] if "_" in run else run
+    env = ARMS.get(arm, (None, {}, 0))[1] if arm in ARMS else {}
+    for key, name in (("context", "CODEQA_CAPS_CONTEXT"), ("messages", "CODEQA_CAPS_MESSAGES"), ("commands", "CODEQA_CAPS_COMMANDS")):
+        if name in env:
+            caps[key] = int(env[name])
+    return caps
+
+
+def harness_caps(profile: EndpointProfile) -> dict[str, int]:
+    return run_caps(_run_of_sampler(profile.model))
+
+
 def harness_budget(profile: EndpointProfile, task_type: TaskType, variant: str | None = None) -> Budget | None:
-    """None = the task type's default budget (call caps). v3 profiles get the round harness caps."""
+    """None = the task type's default budget (call caps). v3 profiles get the round harness caps their run trained with."""
     if not is_v3(profile, variant):
         return None
     base = DEFAULT_BUDGETS[task_type]
-    return Budget(max_tool_calls=UNLIMITED_CALLS, max_turns=V3_MESSAGES, max_answer_tokens=base.max_answer_tokens,
-                  max_context_tokens=V3_CONTEXT_TOKENS, max_commands_per_turn=V3_COMMANDS)
+    caps = harness_caps(profile)
+    return Budget(max_tool_calls=UNLIMITED_CALLS, max_turns=caps["messages"], max_answer_tokens=base.max_answer_tokens,
+                  max_context_tokens=caps["context"], max_commands_per_turn=caps["commands"])
 
 
 def apply_harness_knobs(profile: EndpointProfile, variant: str | None = None) -> None:
@@ -43,5 +87,6 @@ def harness_row(profile: EndpointProfile) -> dict[str, Any]:
     v = resolve_variant(profile.variant)
     row: dict[str, Any] = {"variant": v.name, "tools": list(v.tools)}
     if is_v3(profile):
-        row["harness"] = {"rounds": True, "context_tokens": V3_CONTEXT_TOKENS, "messages": V3_MESSAGES, "commands_per_message": V3_COMMANDS}
+        caps = harness_caps(profile)
+        row["harness"] = {"rounds": True, "context_tokens": caps["context"], "messages": caps["messages"], "commands_per_message": caps["commands"]}
     return row

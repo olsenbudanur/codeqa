@@ -157,6 +157,22 @@ def _own_metrics(name: str) -> list[dict[str, Any]]:
         for i, r in enumerate(rows):
             seen[(int(r.get("step", i)), any(k.startswith("env/") for k in r))] = i
         rows = [r for i, r in enumerate(rows) if seen[(int(r.get("step", i)), any(k.startswith("env/") for k in r))] == i]
+        # async training writes a held-out as its own row next to that step's training row: merge them so one x has one row
+        # (two rows at one x broke the chart's hover on the held-out point, 2026-09-20)
+        by_step: dict[int, dict[str, Any]] = {}
+        merged: list[dict[str, Any]] = []
+        for r in rows:
+            st = int(r.get("step", 0))
+            if any(k.startswith("env/") for k in r):
+                if st in by_step:
+                    by_step[st].update({k: v for k, v in r.items() if k not in by_step[st] or k.startswith("env/")})
+                else:
+                    by_step[st] = r; merged.append(r)
+            elif st in by_step:
+                by_step[st].update({k: v for k, v in r.items() if k != "step"})
+            else:
+                by_step[st] = r; merged.append(r)
+        rows = sorted(merged, key=lambda r: int(r.get("step", 0)))
         if rows and fe:     # the final eval measures the checkpoint AFTER the last step: x = steps completed, like the in-loop points (0, 8, ...)
             extra: dict[str, Any] = {"step": int(rows[-1].get("step", len(rows) - 1)) + 1, "eval/fast/final_t02": 1.0}
             for src, dst in (("reward", "reward"), ("correct_rate", "correct"), ("tool_calls", "tool_calls"), ("prompt_tokens", "prompt_tokens"),
@@ -181,9 +197,17 @@ def _run_metrics(name: str) -> list[dict[str, Any]]:
     offset = sum(1 for r in prows if any(k.startswith("env/") for k in r))
     shifted = []
     for r in own:
-        q = dict(r); q["step"] = int(q.get("step", 0)) + offset; q["fork"] = 1.0
+        q = {k: v for k, v in r.items() if not (int(r.get("step", 0)) == 0 and k.startswith("eval/"))}   # the fork's step-0 held-out re-measures
+        if len(q) <= 1:                                                                                  # the parent's final weights: drop it
+            continue
+        q["step"] = int(q.get("step", 0)) + offset; q["fork"] = 1.0
         shifted.append(q)
-    return [dict(r, parent=1.0) for r in prows] + shifted
+    parent_rows = [dict(r, parent=1.0) for r in prows]
+    final = next((r for r in parent_rows if not any(k.startswith("env/") for k in r) and int(r.get("step", -1)) == offset), None)
+    if final is not None and shifted and int(shifted[0]["step"]) == offset:      # one row at x = offset: the parent's final held-out + the fork's first step
+        shifted[0].update({k: v for k, v in final.items() if k != "step"})
+        parent_rows = [r for r in parent_rows if r is not final]
+    return parent_rows + shifted
 
 
 def run_row(name: str) -> dict[str, Any] | None:

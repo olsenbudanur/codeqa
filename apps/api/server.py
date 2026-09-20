@@ -61,7 +61,7 @@ _CKPT_RE = re.compile(r"^qwen4b-(?P<run>[A-Za-z0-9_.\-]+)-step(?P<step>\d+|final
 
 
 SECOND_ORG_RUN_PREFIXES = ("p4_", "p5_", "p6_")      # runs trained in the second Tinker org (their samplers need TINKER_API_KEY_NEW)
-DEFAULT_PROFILE = os.environ.get("CODEQA_DEFAULT_PROFILE", "qwen4b-p6_bash_v3-step24")   # best held-out so far (0.587 / 87 %, bash harness)   # what the product's model picker opens on
+DEFAULT_PROFILE = os.environ.get("CODEQA_DEFAULT_PROFILE", "scholia-bash-v4")   # the named final of p6_bash_v3 (step 24; the checkpoint row is folded into it): what the picker opens on
 
 
 def checkpoint_profiles() -> dict[str, EndpointProfile]:
@@ -321,7 +321,8 @@ _STEP_RE = re.compile(r"^qwen4b-(?P<run>.+)-step(?P<step>\d+|final)$")
 # Named product models: a trained checkpoint promoted out of the checkpoint list with a name, like a release.
 # "Scholia": the marginal notes of ancient scholars, each one citing the line of the text it comments on.
 NAMED_MODELS: dict[str, tuple[str, str]] = {
-    "scholia-bash-v3": ("Scholia 4B (bash_v3)", "bash agent, rounds harness, trained 24 steps"),
+    "scholia-bash-v4": ("Scholia 4B (bash_v4)", "bash agent, 48k rounds harness; v3 step 24 plus 10 fork steps"),
+    "scholia-bash-v3": ("Scholia 4B (bash_v3)", "bash agent, 32k rounds harness, trained 24 steps"),
 }
 
 
@@ -335,7 +336,8 @@ def profile_row(p: EndpointProfile, from_checkpoints: bool = False) -> dict[str,
     elif p.kind == "tinker":
         m = _STEP_RE.match(p.name)
         if m:
-            label, note = "Qwen3.5-4B, trained", f"{m['run']}, step {m['step']}"
+            # the run and step are what tells checkpoints apart, so they lead the label ("p6_bash_v4 step 10")
+            label, note = f"{m['run']} step {m['step']}", "Qwen3.5-4B, trained"
         elif p.model.startswith("Qwen/"):
             label, note = f"{p.model.split('/', 1)[1]}, untrained", "step 0"
     elif p.kind == "openai":
@@ -352,7 +354,10 @@ def profile_row(p: EndpointProfile, from_checkpoints: bool = False) -> dict[str,
 
 @app.get("/profiles")
 def get_profiles() -> list[dict[str, Any]]:
-    rows = [profile_row(p) for p in load_profiles().values()]
+    """profiles.yaml entries first, then checkpoint-derived ones. A checkpoint that also has a named model (same sampler
+    path) is listed once, under the name, so the picker does not show "Scholia" and "p6_bash_v4 step 10" as two rows."""
+    named_paths = {p.model for n, p in load_profiles().items() if n in NAMED_MODELS}
+    rows = [profile_row(p) for n, p in load_profiles().items() if n in NAMED_MODELS or p.model not in named_paths]
     rows += [profile_row(p, from_checkpoints=True) for p in checkpoint_profiles().values()]
     return rows
 

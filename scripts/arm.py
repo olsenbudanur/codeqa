@@ -36,6 +36,15 @@ ARMS = {  # arm -> (variant, extra env, default steps)
                             "CODEQA_EFF_TOKEN_BUDGET": "120000", "CODEQA_ARM_GROUNDED_CREDIT": "0", "CODEQA_SEEN_PIPELINES": "1",
                             "CODEQA_ARM_GROUPS": "16", "CODEQA_ASYNC_OFF_POLICY": "1", "CODEQA_BATCH_OFFSET": "24",
                             "CODEQA_ARM_FORK_FROM": "p6_bash_v3", "CODEQA_ARM_STEPS": "40", "CODEQA_ARM_EVAL_EVERY": "8"}, 40),
+    # re-fork probe (2026-09-20 18:00): bash_v4's step-5 checkpoint + 3 steps on the same batches (offset 24+5) to re-create a step-8-like
+    # policy, since step 8's weights (held-out 0.644) were not saved. Final T=1 eval only.
+    "bash_v4r8": ("bash_v3", {"CODEQA_BASH_EXECUTOR": "modal", "CODEQA_MODAL_SANDBOXES": "32", "CODEQA_BASH_HEAL": "1",
+                              "CODEQA_CAPS_CONTEXT": "48000", "CODEQA_CAPS_MESSAGES": "16", "CODEQA_CAPS_COMMANDS": "4",
+                              "CODEQA_REWARD": "v3", "CODEQA_EFF_WEIGHT": "0.30", "CODEQA_EFF_WEIGHT_FROM_STEP": "0",
+                              "CODEQA_EFF_TOKEN_BUDGET": "120000", "CODEQA_ARM_GROUNDED_CREDIT": "0", "CODEQA_SEEN_PIPELINES": "1",
+                              "CODEQA_ARM_GROUPS": "16", "CODEQA_ASYNC_OFF_POLICY": "1", "CODEQA_BATCH_OFFSET": "29",
+                              "CODEQA_ARM_FORK_FROM": "p6_bash_v4", "CODEQA_ARM_FORK_STEP": "5", "CODEQA_ARM_STEPS": "3",
+                              "CODEQA_ARM_EVAL_EVERY": "100", "CODEQA_ARM_SAVE_EVERY": "1", "CODEQA_SKIP_FIRST_EVAL": "1"}, 3),
     "bash_v3": ("bash_v3", {"CODEQA_BASH_EXECUTOR": "modal", "CODEQA_MODAL_SANDBOXES": "16", "CODEQA_BASH_HEAL": "1",
                             "CODEQA_CAPS_CONTEXT": "32000", "CODEQA_CAPS_MESSAGES": "24", "CODEQA_CAPS_COMMANDS": "4",
                             "CODEQA_REWARD": "v3", "CODEQA_EFF_WEIGHT": "0.15", "CODEQA_EFF_WEIGHT_FROM_STEP": "8",
@@ -52,7 +61,7 @@ def common() -> list[str]:
     return ["--tasks", str(paths.TASKS_TRAIN / os.environ.get("CODEQA_ARM_TASKS", "run1.jsonl")),     # CODEQA_ARM_TASKS: file under data/tasks/train
             "--profile", BASE_PROFILE,                             # CODEQA_ARM_PROFILE: qwen4b-base (default) | qwen9b-base
             "--group-size", "8", "--groups-per-batch", os.environ.get("CODEQA_ARM_GROUPS", "16"),
-            "--lr", "1e-4", "--variant", os.environ.get("CODEQA_ARM_REWARD_VARIANT", "none"), "--eval-tasks", str(paths.TASKS_EVAL / os.environ.get("CODEQA_ARM_EVAL_FILE", "fast.jsonl")), "--eval-every", os.environ.get("CODEQA_ARM_EVAL_EVERY", "10"), "--eval-max-tasks", os.environ.get("CODEQA_ARM_EVAL_TASKS", "60"), "--save-every", "5",
+            "--lr", "1e-4", "--variant", os.environ.get("CODEQA_ARM_REWARD_VARIANT", "none"), "--eval-tasks", str(paths.TASKS_EVAL / os.environ.get("CODEQA_ARM_EVAL_FILE", "fast.jsonl")), "--eval-every", os.environ.get("CODEQA_ARM_EVAL_EVERY", "10"), "--eval-max-tasks", os.environ.get("CODEQA_ARM_EVAL_TASKS", "60"), "--save-every", os.environ.get("CODEQA_ARM_SAVE_EVERY", "4"),   # must divide eval-every so every held-out point has a saved checkpoint (2026-09-20: step 8's 0.644 was unrecoverable)
             "--seed", "0", "--if-exists", "resume", "--grounded-credit", os.environ.get("CODEQA_ARM_GROUNDED_CREDIT", "0.05"),
             *(["--judge-model", os.environ["CODEQA_ARM_JUDGE"]] if os.environ.get("CODEQA_ARM_JUDGE") else [])]   # e.g. claude-sonnet-5: cleaner explain rewards      # resume: Modal restarts a preempted function with the same input (seen 2026-09-19 20:06)
 
@@ -135,7 +144,9 @@ def main() -> int:
     parent = os.environ.get("CODEQA_ARM_FORK_FROM")               # fork: start from the parent run's final weights (fresh optimizer)
     if parent and not (paths.LOGS / run / "checkpoints.jsonl").exists():
         precs = [json.loads(l) for l in open(paths.LOGS / parent / "checkpoints.jsonl") if l.strip()]
-        pck = next((r for r in precs if r.get("name") == "final" and r.get("state_path")), None) or next(r for r in reversed(precs) if r.get("state_path"))
+        want = os.environ.get("CODEQA_ARM_FORK_STEP")                 # fork from a specific saved step instead of the parent's final
+        pck = (next((r for r in precs if want and str(r.get("batch")) == want and r.get("state_path")), None)
+               or next((r for r in precs if r.get("name") == "final" and r.get("state_path")), None) or next(r for r in reversed(precs) if r.get("state_path")))
         fork_args = ["--load-checkpoint", pck["state_path"]]
         print(f"[arm] forking from {parent} batch {pck.get('batch')}: {pck['state_path']}", flush=True)
     from codeqa.trainer import run as trainer

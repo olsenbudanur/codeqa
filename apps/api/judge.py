@@ -204,6 +204,13 @@ async def judge_events(req: JudgeRequest) -> AsyncIterator[dict[str, Any]]:
                                         budget=harness_budget(RESEARCH_PROFILE, req.task_type, req.variant), variant=req.variant)
             trace = await asyncio.wait_for(run_episode(env, research_client(), on_event, temperature=0.3), timeout=RESEARCH_TIMEOUT)
             save_trace(trace, run="judge")
+            if trace.answer:
+                # the referee's own citations, verified the same way as a product answer (the driver's light `citations`
+                # event is dropped above, and the UI can only check read_file ranges on its own, not bash reads)
+                from codeqa.grader.citations import check_citations
+                report = await asyncio.to_thread(check_citations, trace.answer, trace.stats.files_read, req.repo_id)
+                await queue.put({"type": "ref", "event": {"type": "citations", "t": round(time.time() - t0, 3),
+                                                            "items": [{"path": c.path, "start": c.start, "end": c.end, "exists": c.exists, "verified": c.exists and c.grounded} for c in report.citations]}})
             log(f"[judge] referee researched in {trace.stats.tool_calls} calls, {trace.stats.seconds}s, stop={trace.stats.stop_reason}")
             if not trace.answer:
                 await queue.put({"type": "error", "message": f"The referee did not reach an answer ({trace.stats.stop_reason}); no verdicts."})

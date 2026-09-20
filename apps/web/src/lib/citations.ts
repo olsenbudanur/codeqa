@@ -20,10 +20,18 @@ export function formatRange(s: Span): string {
 // Rewrite `[path:L10-L20]` into a markdown link with a cite: href so the
 // markdown renderer can hand it to the citation chip component.
 export function linkifyCitations(markdown: string): string {
-  return markdown.replace(CITATION_RE, (whole, path: string, a: string, b?: string) => {
-    const end = b ?? a
-    return `[${whole.slice(1, -1)}](cite:${encodeURIComponent(path)}:${a}:${end})`
-  })
+  // Code spans and fences are left alone: `[path:L10-L20]` quoted as the format is not a citation.
+  return markdown
+    .split(/(```[\s\S]*?```|`[^`\n]*`)/)
+    .map((part, i) =>
+      i % 2 === 1
+        ? part
+        : part.replace(CITATION_RE, (whole, path: string, a: string, b?: string) => {
+            const end = b ?? a
+            return `[${whole.slice(1, -1)}](cite:${encodeURIComponent(path)}:${a}:${end})`
+          }),
+    )
+    .join('')
 }
 
 export function parseCiteHref(href: string): Span | null {

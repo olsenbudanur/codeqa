@@ -188,6 +188,30 @@ HEAL_OVERRIDE: _cv.ContextVar[bool | None] = _cv.ContextVar("codeqa_bash_heal", 
 PIPELINES_OVERRIDE: _cv.ContextVar[bool | None] = _cv.ContextVar("codeqa_seen_pipelines", default=None)
 
 
+# Files the indexer writes into the snapshot root. They are not part of the repository (the manifest's file list does
+# not contain them, so citing them is "fabricated"), and the shell hides them unless the repository really has a file
+# of that name at its root.
+METADATA_FILES = ("manifest.json",)
+_META_WORD = r"(?:\./)?{name}(?=$|[\s'\"|;&:)])"
+
+
+def metadata_precheck(command: str, metadata: list[str]) -> str | None:
+    """Refuse a command that names a metadata file directly (`cat manifest.json`, `head -100 ./manifest.json`)."""
+    for name in metadata:
+        if re.search(r"(^|[\s'\"=(])" + _META_WORD.format(name=re.escape(name)), command):
+            return f"not_found: '{name}' is not part of the repository (index metadata)"
+    return None
+
+
+def hide_metadata(output: str, metadata: list[str]) -> str:
+    """Drop the lines of ls/find/grep output that are about a metadata file at the snapshot root."""
+    if not metadata or not output:
+        return output
+    pats = [re.compile(r"(^|\s|\./)" + re.escape(name) + r"(:|/|\s*$)") for name in metadata]
+    kept = [line for line in output.split("\n") if not any(p.search(line) for p in pats)]
+    return "\n".join(kept)
+
+
 def heal_enabled() -> bool:
     o = HEAL_OVERRIDE.get()
     return o if o is not None else os.environ.get("CODEQA_BASH_HEAL", "0") == "1"
