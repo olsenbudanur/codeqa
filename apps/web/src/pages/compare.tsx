@@ -378,26 +378,15 @@ function CompareSummary({ episodes, labels, judge: verdicts, grades }: { episode
         }]
       : []),
     ...(grades
-      ? [
-          {
-            label: 'Grader reward',
-            help: 'the training grader on this answer, with the referee\'s cited answer as the reference: gates, then correctness × grounded share (reward v2, as the held-out evaluator scores)',
-            get: (e: Episode) => grades[episodes.indexOf(e)]?.reward ?? undefined,
-            fmt: (n: number) => n.toFixed(2),
-            text: (e: Episode) => { const g = grades[episodes.indexOf(e)]; return g ? (typeof g.reward === 'number' ? `${g.reward.toFixed(2)}${g.gate_failed ? ` (gate: ${g.gate_failed})` : ''}` : g.error ? 'not graded' : 'judge failed') : '' },
-            lowerIsBetter: false,
-            eps: 0.005,
-          },
-          {
-            label: 'Grader correctness',
-            help: 'share of the facts in the reference answer that this answer states, per the grader\'s rubric judge; 0 when a gate fired first',
-            get: (e: Episode) => grades[episodes.indexOf(e)]?.components?.correctness ?? undefined,
-            fmt: (n: number) => `${Math.round(n * 100)}%`,
-            text: (e: Episode) => { const c = grades[episodes.indexOf(e)]?.components?.correctness; return typeof c === 'number' ? `${Math.round(c * 100)}%` : '' },
-            lowerIsBetter: false,
-            eps: 0.005,
-          },
-        ]
+      ? [{
+          label: 'Grader score',
+          help: 'the training grader\'s judge: share of the facts in the referee\'s cited answer that this answer states; a contradicted fact costs its item',
+          get: (e: Episode) => grades[episodes.indexOf(e)]?.score,
+          fmt: (n: number) => `${Math.round(n * 100)}%`,
+          text: (e: Episode) => { const g = grades[episodes.indexOf(e)]; return g ? (typeof g.score === 'number' ? `${Math.round(g.score * 100)}%${g.satisfied ? ` (${g.satisfied.filter(Boolean).length} of ${g.satisfied.length} facts)` : ''}` : g.error ? 'not graded' : '') : '' },
+          lowerIsBetter: false,
+          eps: 0.005,
+        }]
       : []),
     {
       label: 'Citations verified',

@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { CitationItem, Span } from '@/lib/contracts'
-import { formatRange, linkifyCitations, parseCitations, parseCiteHref, spanKey } from '@/lib/citations'
+import { attachSources, formatRange, linkifyCitations, parseCitations, parseCiteHref, spanKey } from '@/lib/citations'
 import type { Episode, LogRow, ToolRow } from '@/state/episode'
 import { filesRead } from '@/state/episode'
 import { cn } from '@/lib/utils'
@@ -18,7 +18,8 @@ function splitSources(md: string): { body: string; notes: Map<string, string> } 
   if (idx === -1) return { body: md, notes }
   const body = md.slice(0, idx).trimEnd()
   for (const line of md.slice(idx).split('\n').slice(1)) {
-    const m = line.match(/^\s*[-*]\s*([^\s:]+):L(\d+)(?:-L(\d+))?\s+(.*)$/)
+    // `- path:L10-L20 note` or, as the trained models write it, `- [path:L10-L20] note`
+    const m = line.match(/^\s*[-*]\s*\[?([^\s:\]]+):L(\d+)(?:-L(\d+))?\]?\s+(.*)$/)
     if (m) notes.set(`${m[1]}:${m[2]}-${m[3] ?? m[2]}`, m[4].trim())
   }
   return { body, notes }
@@ -64,6 +65,10 @@ export function AnswerPanel({ episode, onOpen, compact, bare, unchecked }: { epi
   if (!answer) return null
 
   const uniqueCited = dedupe(cited)
+  const inBody = new Set(parseCitations(body).map(spanKey))
+  // Sources-list citations attached to the prose line that names their file; the rest stay in a chip row.
+  const { body: shownBody, attached } = attachSources(body, uniqueCited.filter((c) => !inBody.has(spanKey(c))))
+  const sourcesOnly = uniqueCited.filter((c) => !inBody.has(spanKey(c)) && !attached.has(spanKey(c)))
   // Read ranges not fully covered by a citation.
   const consulted = dedupe(read).filter((r) => !uniqueCited.some((c) => contains(c, r)))
   const nVerified = uniqueCited.filter((c) => verdictFor(c) === 'verified').length
@@ -91,13 +96,23 @@ export function AnswerPanel({ episode, onOpen, compact, bare, unchecked }: { epi
         </div>
       )}
       <div className={bare ? '' : 'border-t pt-4'}>
-        <CitedMarkdown markdown={body} verdictFor={verdictFor} onOpen={onOpen} detailFor={(s) => (unchecked ? unchecked : explainCitation(s, rows, read))} />
+        <CitedMarkdown markdown={shownBody} verdictFor={verdictFor} onOpen={onOpen} detailFor={(s) => (unchecked ? unchecked : explainCitation(s, rows, read))} />
       </div>
 
       {!compact && (uniqueCited.length > 0 || consulted.length > 0) && (
         <div className="mt-6 grid gap-6 sm:grid-cols-2">
           <SourceList title="Cited" spans={uniqueCited} notes={notes} verdictFor={verdictFor} onOpen={onOpen} />
           <SourceList title="Also read" spans={consulted} notes={notes} onOpen={onOpen} />
+        </div>
+      )}
+      {/* Compact view (compare columns): citations that live only in the trailing Sources list, e.g. Scholia cites
+          there rather than inline, would otherwise be invisible and unclickable. */}
+      {compact && sourcesOnly.length > 0 && (
+        <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t pt-3">
+          <span className="mr-1 text-xs text-muted-foreground">Sources</span>
+          {sourcesOnly.map((c) => (
+            <CitationChip key={spanKey(c)} span={c} verdict={verdictFor(c)} onOpen={onOpen} detail={unchecked ? unchecked : (notes.get(`${c.path}:${c.start}-${c.end}`) ?? explainCitation(c, rows, read))} />
+          ))}
         </div>
       )}
 

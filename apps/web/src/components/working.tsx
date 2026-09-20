@@ -37,7 +37,7 @@ export function useElapsed(since: number | undefined, active: boolean): number {
 // What to say while the model has produced nothing yet.
 export function waitingText(seconds: number, calls: number): string {
   if (calls > 0) return `researching, ${calls} ${calls === 1 ? 'call' : 'calls'} so far`
-  if (seconds < 8) return 'reading the repository map'
+  if (seconds < 8) return 'reading the question'
   if (seconds < 30) return `waiting for the model, ${seconds} s`
   return `waiting for the model, ${seconds} s. Tinker sampling is queued (training jobs share the key); Claude answers in seconds if you need it now`
 }

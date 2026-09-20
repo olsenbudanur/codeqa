@@ -21,3 +21,14 @@ describe('citations', () => {
     expect(parseCiteHref('https://example.com')).toBeNull()
   })
 })
+
+describe('attachSources', () => {
+  it('moves Sources-list citations onto the prose line that names the file, outside code fences', async () => {
+    const { attachSources } = await import('../src/lib/citations')
+    const body = ['The entrypoint is `isympy`, defined in `setup.py` at line 44:', '```', "'isympy = isympy:main'", '```', 'Install with pip.'].join('\n')
+    const r = attachSources(body, [{ path: 'setup.py', start: 44, end: 44 }, { path: 'doc/src/install.md', start: 13, end: 13 }])
+    expect(r.body.split('\n')[0]).toBe('The entrypoint is `isympy`, defined in `setup.py` at line 44 [setup.py:L44]:')
+    expect(r.body).not.toContain("'isympy = isympy:main' [")
+    expect([...r.attached]).toEqual(['setup.py:44-44'])
+  })
+})

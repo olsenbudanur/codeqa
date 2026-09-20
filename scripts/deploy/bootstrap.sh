@@ -12,7 +12,10 @@ log() { echo "[bootstrap] $*"; }
 
 log "packages"
 sudo apt-get update -qq
-sudo apt-get install -y -qq git curl ripgrep rsync debian-keyring debian-archive-keyring apt-transport-https ca-certificates gnupg >/dev/null
+sudo apt-get install -y -qq git curl ripgrep rsync tree bubblewrap debian-keyring debian-archive-keyring apt-transport-https ca-certificates gnupg >/dev/null
+
+# bubblewrap needs unprivileged user namespaces; Ubuntu 24.04 restricts them via AppArmor by default.
+echo "kernel.apparmor_restrict_unprivileged_userns = 0" | sudo tee /etc/sysctl.d/60-bwrap-userns.conf >/dev/null; sudo sysctl -q --system
 
 if ! command -v uv >/dev/null; then log "uv"; curl -LsSf https://astral.sh/uv/install.sh | sh >/dev/null; fi
 export PATH="$HOME/.local/bin:$PATH"

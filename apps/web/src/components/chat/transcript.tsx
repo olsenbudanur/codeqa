@@ -143,7 +143,7 @@ function Activity({ rows, running, onOpen, className }: { rows: LogRow[]; runnin
       {rows.length === 0 && running && (
         <li className="row-in flex items-center gap-2 text-[13px] text-muted-foreground">
           <Dot pending />
-          Reading the repository map
+          Reading the question
         </li>
       )}
       {rows.map((r) => {

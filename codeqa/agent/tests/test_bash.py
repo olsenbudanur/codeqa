@@ -124,3 +124,11 @@ def test_sandbox_layer_denies_reads_outside_snapshot_even_without_precheck():
                            capture_output=True, text=True, env=env, cwd=cwd)
     assert write.returncode != 0
     assert "FLASK" not in (cwd / "README.md").read_text()[:200]
+
+
+@pytest.mark.skipif(not shell.bwrap_works(), reason="bwrap layer not active (Linux + CODEQA_BWRAP=1 only)")
+def test_bwrap_denies_reads_outside_snapshot(t):
+    import asyncio
+    from codeqa.shared import paths
+    out, _rc, _err = asyncio.run(shell._exec(f"cat {paths.ROOT / '.env.example'}", t.root, 10, 4000, None))
+    assert "TINKER" not in out

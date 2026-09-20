@@ -133,6 +133,37 @@ def sandbox_exec_works() -> bool:
 
 EXECUTOR = os.environ.get("CODEQA_BASH_EXECUTOR", "local")   # local | modal
 
+# Linux counterpart of the sandbox-exec layer: bubblewrap. Opt-in with CODEQA_BWRAP=1 (the EC2 box sets it); off by
+# default so a laptop keeps today's behaviour. Same four guarantees as _sandbox_profile: no network, no writes, no home,
+# reads only inside the snapshot and the allowlist dir. Ubuntu 24.04 needs kernel.apparmor_restrict_unprivileged_userns=0.
+BWRAP = shutil.which("bwrap") if os.environ.get("CODEQA_BWRAP") == "1" else None
+
+
+def _bwrap_argv(cwd: Path) -> list[str]:
+    binds: list[str] = []
+    for d in ("/usr", "/lib", "/lib64", "/bin", str(cwd), str(allowlist_dir())):
+        if Path(d).exists():
+            binds += ["--ro-bind", d, d]
+    return [BWRAP, "--unshare-all", "--die-with-parent", *binds, "--tmpfs", "/tmp", "--proc", "/proc", "--dev", "/dev",
+            "--chdir", str(cwd)]
+
+
+@lru_cache(maxsize=1)
+def bwrap_works() -> bool:
+    if platform.system() != "Linux" or BWRAP is None:
+        return False
+    try:
+        import subprocess
+        probe = paths.DATA / ".sandbox_probe"
+        probe.mkdir(exist_ok=True)
+        env = {"PATH": str(allowlist_dir())}
+        ok = subprocess.run(_bwrap_argv(probe) + [BASH, "-r", "-c", "echo ok"], capture_output=True, text=True, timeout=10, env=env)
+        denied = subprocess.run(_bwrap_argv(probe) + [BASH, "-r", "-c", f"cat {paths.ROOT / '.env.example'}"],
+                                capture_output=True, text=True, timeout=10, env=env)
+        return ok.returncode == 0 and "ok" in ok.stdout and denied.returncode != 0 and "TINKER" not in denied.stdout
+    except Exception:  # noqa: BLE001
+        return False
+
 
 # ---------------------------------------------------------------------------
 # Grep self-healing (CODEQA_BASH_HEAL=1, v3 harness): a bad regex is retried once as a literal search with the escapes
@@ -236,6 +267,8 @@ async def _exec(command: str, cwd: Path, timeout: float, cap: int, repo_id: str 
     argv = [BASH, "-r", "-c", STDERR_NULL.sub("", command) if drop_stderr else command]
     if sandbox_exec_works():
         argv = [SANDBOX_EXEC, "-p", _sandbox_profile(cwd)] + argv
+    elif bwrap_works():
+        argv = _bwrap_argv(cwd) + argv
     env = {"PATH": str(allowlist_dir()), "LC_ALL": "C", "HOME": "/nonexistent", "TERM": "dumb"}
     try:
         proc = await asyncio.create_subprocess_exec(*argv, cwd=str(cwd), env=env, stdout=asyncio.subprocess.PIPE,

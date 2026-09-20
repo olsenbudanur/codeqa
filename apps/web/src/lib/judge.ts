@@ -11,14 +11,15 @@ export interface Candidate {
   profile?: string // lets the API grade the saved trace of this answer with the training grader
 }
 
-// The training grader's verdict on one candidate (reference = the referee's answer): reward 0..1, the components
-// the held-out evaluator reports, and which gate zeroed it, if any.
+// The training grader's correctness judge on one candidate: share of the facts in the referee's answer that this
+// answer states (0..1), contradictions costing their item. No gates.
 export interface Grade {
   index: number
   label: string
-  reward?: number | null
-  components?: Record<string, number | null>
-  gate_failed?: string | null
+  score?: number
+  items?: string[]
+  satisfied?: boolean[]
+  contradicted?: boolean[]
   notes?: string
   error?: string
 }

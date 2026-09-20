@@ -123,7 +123,7 @@ export function Ledger({
           )
         })}
         {running && rows.length === 0 && (
-          <li className="flex items-center gap-2 py-2.5 text-sm text-muted-foreground"><BracketSpinner />Reading the repository map</li>
+          <li className="flex items-center gap-2 py-2.5 text-sm text-muted-foreground"><BracketSpinner />Reading the question</li>
         )}
       </ol>
     </section>

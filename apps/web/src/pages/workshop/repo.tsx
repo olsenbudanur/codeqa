@@ -14,7 +14,7 @@ import { FileViewer } from '@/components/file/file-viewer'
 import { Dots } from '@/components/working'
 import { Chip, ErrorNote, Loading, Panel, Stat } from '@/components/workshop/ui'
 
-// One repository as the agent sees it: the map, the files, and a console for its five tools.
+// One repository as the agent sees it: the overview, the files, and a console for any variant's tools.
 export function RepoPage({ repoId, params }: { repoId: string; params: URLSearchParams }) {
   const [ov, setOv] = useState<RepoOverview | null>(null)
   const [error, setError] = useState<string | null>(null)

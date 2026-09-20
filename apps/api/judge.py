@@ -26,8 +26,7 @@ from codeqa.agent.driver import run_episode, save_trace
 from codeqa.agent.env import RepoEnv
 from codeqa.clients.base import ModelClient, make_client
 from codeqa.grader.judge import strip_markdown, truncate_tokens
-from codeqa.shared import paths
-from codeqa.shared.contracts import EndpointProfile, Grading, Message, SSEEvent, Task, TaskType, Trace
+from codeqa.shared.contracts import EndpointProfile, Message, SSEEvent, TaskType
 
 router = APIRouter()
 
@@ -83,40 +82,25 @@ class JudgeRequest(BaseModel):
     variant: str | None = None
 
 
-# The training grader, applied to each candidate with the referee's cited answer as the reference: the grader's
-# rubric judge derives the facts a correct answer must state from that reference. Same gates, grounding multiplier
-# and reward formula as the held-out evaluator (reward v2, efficiency off), and the same judge model as phase 4+.
+# The training grader's correctness judge, applied to each candidate with the referee's cited answer as the reference:
+# the judge derives the facts a correct answer must state from that reference and scores the share stated (and
+# contradicted claims cost their item, reward v2). Gates are not applied here: the comparison shows a score, and the
+# citation and budget checks have their own rows. Same judge model as phase 4+.
 GRADER_JUDGE_MODEL = os.environ.get("CODEQA_GRADER_JUDGE_MODEL", "claude-sonnet-5")
 
 
-def adhoc_task_id(repo_id: str, question: str) -> str:
-    import hashlib
-    return "adhoc-" + hashlib.sha1(f"{repo_id}\n{question}".encode()).hexdigest()[:10]
-
-
-def candidate_trace(repo_id: str, question: str, profile: str) -> Trace | None:
-    p = paths.TRACES / "product" / f"{adhoc_task_id(repo_id, question)}__{profile}.json"
-    return Trace.model_validate_json(p.read_text()) if p.exists() else None
-
-
 async def grade_candidate(req: JudgeRequest, cand: Candidate, reference: str) -> dict[str, Any]:
-    from codeqa.grader.grade import grade
-    from codeqa.grader.judge import default_client
-    from codeqa.grader.repo import load_repo
-    if not cand.profile:
-        return {"error": "no profile for this column"}
-    trace = candidate_trace(req.repo_id, req.question, cand.profile)
-    if trace is None:
-        return {"error": "no saved trace for this answer"}
-    task = Task(task_id=trace.task_id, repo_id=req.repo_id, split="eval", question=req.question, task_type=req.task_type,
-                source="teacher", grading=Grading(reference_answer=reference))
-    result = await asyncio.wait_for(
-        grade(task, trace, variant="none", judge_client=default_client(GRADER_JUDGE_MODEL), repo=load_repo(req.repo_id), reward="v2"),
+    from codeqa.grader.judge import default_client, judge as rubric_judge
+    from codeqa.shared.contracts import DEFAULT_BUDGETS
+    if not cand.answer.strip():
+        return {"error": "no answer to grade"}
+    v = await asyncio.wait_for(
+        rubric_judge(req.question, cand.answer, [], reference, DEFAULT_BUDGETS[req.task_type].max_answer_tokens, client=default_client(GRADER_JUDGE_MODEL)),
         timeout=90)
-    comps = result.components.model_dump()
-    return {"reward": None if result.reward != result.reward else round(result.reward, 3),   # NaN -> null
-            "components": {k: (None if v != v else round(v, 3)) for k, v in comps.items() if isinstance(v, (int, float))},
-            "gate_failed": result.gate_failed, "notes": result.notes}
+    if v.failed:
+        return {"error": f"judge failed: {v.error}"}
+    return {"score": round(v.score, 3), "items": v.items, "satisfied": v.satisfied, "contradicted": v.contradicted,
+            "notes": f"{sum(v.satisfied)}/{len(v.satisfied)} reference facts stated"}
 
 
 JUDGE_SYSTEM = """You are the referee for answers to a question about a code repository.
