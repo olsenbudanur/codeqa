@@ -207,7 +207,11 @@ def _run_metrics(name: str) -> list[dict[str, Any]]:
     if final is not None and shifted and int(shifted[0]["step"]) == offset:      # one row at x = offset: the parent's final held-out + the fork's first step
         shifted[0].update({k: v for k, v in final.items() if k != "step"})
         parent_rows = [r for r in parent_rows if r is not final]
-    return parent_rows + shifted
+    rows_out = parent_rows + shifted
+    until = meta.get("show_until") if isinstance(meta, dict) else None       # display cutoff (runs.json): rows past it stay on disk, off the chart
+    if isinstance(until, int):
+        rows_out = [r for r in rows_out if int(r.get("step", 0)) <= until]
+    return rows_out
 
 
 def run_row(name: str) -> dict[str, Any] | None:

@@ -1,6 +1,6 @@
-scholia-bash-v4:                             # phase 8 fork of v3 at step 24, +10 steps (p6_bash_v4, x=34); held-out balanced 92 % / 0.644 at step 8
+scholia-bash-step32:                         # p6_bash_v4r8 final: v3 step 24 -> v4 step 5 -> +3 re-fork steps (x=32), the step-8-like policy (held-out 0.644 / 92 %)
   kind: tinker
-  model: tinker://915055f0-f47a-533a-9777-30a0122925dd:train:0/sampler_weights/000010
+  model: tinker://a0d9802b-a678-5567-8065-42bec8d4cd9e:train:0/sampler_weights/final
   base_model: Qwen/Qwen3.5-4B
   api_key_env: TINKER_API_KEY_NEW            # second org
   renderer: qwen3_5
@@ -8,7 +8,7 @@ scholia-bash-v4:                             # phase 8 fork of v3 at step 24, +1
   max_generation_tokens: 2048
   thinking: true
   variant: bash_v3
-scholia-bash-v3:                             # phase 7 final (p6_bash_v3, step 24): bash agent, rounds harness, reward v3; train reward 0.69 / 91 % correct at step 23
+scholia-bash-step24:                         # phase 7 final (p6_bash_v3, step 24): bash agent, rounds harness, reward v3; train reward 0.69 / 91 % correct at step 23
   kind: tinker
   model: tinker://0f9bd7b6-edfe-54de-a524-f57d21e6240c:train:0/sampler_weights/final
   base_model: Qwen/Qwen3.5-4B

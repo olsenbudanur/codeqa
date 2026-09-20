@@ -61,7 +61,7 @@ _CKPT_RE = re.compile(r"^qwen4b-(?P<run>[A-Za-z0-9_.\-]+)-step(?P<step>\d+|final
 
 
 SECOND_ORG_RUN_PREFIXES = ("p4_", "p5_", "p6_")      # runs trained in the second Tinker org (their samplers need TINKER_API_KEY_NEW)
-DEFAULT_PROFILE = os.environ.get("CODEQA_DEFAULT_PROFILE", "scholia-bash-v4")   # the named final of p6_bash_v3 (step 24; the checkpoint row is folded into it): what the picker opens on
+DEFAULT_PROFILE = os.environ.get("CODEQA_DEFAULT_PROFILE", "scholia-bash-step32")   # the named final of p6_bash_v3 (step 24; the checkpoint row is folded into it): what the picker opens on
 
 
 def checkpoint_profiles() -> dict[str, EndpointProfile]:
@@ -320,9 +320,10 @@ _STEP_RE = re.compile(r"^qwen4b-(?P<run>.+)-step(?P<step>\d+|final)$")
 
 # Named product models: a trained checkpoint promoted out of the checkpoint list with a name, like a release.
 # "Scholia": the marginal notes of ancient scholars, each one citing the line of the text it comments on.
+# Named after the total number of RL steps from the base model: step24 = phase-7 final; step32 = its fork, 48k harness.
 NAMED_MODELS: dict[str, tuple[str, str]] = {
-    "scholia-bash-v4": ("Scholia 4B (bash_v4)", "bash agent, 48k rounds harness; v3 step 24 plus 10 fork steps"),
-    "scholia-bash-v3": ("Scholia 4B (bash_v3)", "bash agent, 32k rounds harness, trained 24 steps"),
+    "scholia-bash-step32": ("Scholia 4B (bash_step32)", "bash agent, 48k rounds harness; 32 RL steps"),
+    "scholia-bash-step24": ("Scholia 4B (bash_step24)", "bash agent, 32k rounds harness; 24 RL steps"),
 }
 
 
